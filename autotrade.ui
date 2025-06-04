@@ -1,0 +1,547 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AutoTradeWindow</class>
+ <widget class="QDialog" name="AutoTradeWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>자동매매 시스템</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="dataTab">
+      <attribute name="title">
+       <string>데이터 수집/저장</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QGroupBox" name="dataOptionGroup">
+         <property name="title">
+          <string>데이터 수집 옵션</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QGroupBox { margin:2px; padding:2px; }</string>
+         </property>
+         <layout class="QGridLayout" name="dataOptionGrid">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label">
+            <property name="text">
+             <string>코인:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="dataCoinCombo"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="label_2">
+            <property name="text">
+             <string>시작일:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="3">
+           <widget class="QDateEdit" name="dataStartDate">
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>yyyy-MM-dd</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="4">
+           <widget class="QLabel" name="label_3">
+            <property name="text">
+             <string>종료일:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="5">
+           <widget class="QDateEdit" name="dataEndDate">
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>yyyy-MM-dd</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_4">
+            <property name="text">
+             <string>거래소:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="exchangeCombo">
+            <item>
+             <property name="text">
+              <string>빗썸</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>업비트</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QLabel" name="label_5">
+            <property name="text">
+             <string>시간 단위:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="3">
+           <widget class="QComboBox" name="dataIntervalCombo">
+            <item>
+             <property name="text">
+              <string>1분봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>3분봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>5분봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>15분봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>30분봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>1시간봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>4시간봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>일봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>주봉</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>월봉</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="1" column="4">
+           <widget class="QLabel" name="label_6">
+            <property name="text">
+             <string>중복 처리:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="5">
+           <widget class="QComboBox" name="duplicateCombo">
+            <item>
+             <property name="text">
+              <string>덮어쓰기</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>건너뛰기</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>오류 발생</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="1" column="6">
+           <widget class="QCheckBox" name="backupCheck">
+            <property name="text">
+             <string>데이터 백업 생성</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="7">
+           <widget class="QPushButton" name="dataFetchBtn">
+            <property name="text">
+             <string>데이터 가져오기</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="dataResult">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="backtestTab">
+      <attribute name="title">
+       <string>백테스팅</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QLabel" name="label_4">
+           <property name="text">
+            <string>코인:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="backtestCoinCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_5">
+           <property name="text">
+            <string>시작일:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QDateEdit" name="backtestStartDate">
+           <property name="calendarPopup">
+            <bool>true</bool>
+           </property>
+           <property name="displayFormat">
+            <string>yyyy-MM-dd</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_6">
+           <property name="text">
+            <string>종료일:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QDateEdit" name="backtestEndDate">
+           <property name="calendarPopup">
+            <bool>true</bool>
+           </property>
+           <property name="displayFormat">
+            <string>yyyy-MM-dd</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_7">
+           <property name="text">
+            <string>시간단위:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="backtestIntervalCombo">
+           <item>
+            <property name="text">
+             <string>1분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>3분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>5분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>15분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>30분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>60분봉</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>일봉</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_8">
+           <property name="text">
+            <string>전략:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="strategyCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_17">
+           <property name="text">
+            <string>투자금액:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="backtestInvestment">
+           <property name="minimum">
+            <number>100000</number>
+           </property>
+           <property name="maximum">
+            <number>1000000000</number>
+           </property>
+           <property name="singleStep">
+            <number>100000</number>
+           </property>
+           <property name="value">
+            <number>10000000</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="backtestStartBtn">
+           <property name="text">
+            <string>백테스팅 시작</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="optunaOptimizeBtn">
+           <property name="text">
+            <string>Optuna 파라미터 최적화</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QScrollArea" name="scrollArea">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="scrollAreaWidgetContents">
+          <layout class="QVBoxLayout" name="backtestParamLayout">
+          </layout>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="backtestStatus">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="simTab">
+      <attribute name="title">
+       <string>시뮬레이션</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <item>
+          <widget class="QLabel" name="label_9">
+           <property name="text">
+            <string>코인:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="simCoinCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_10">
+           <property name="text">
+            <string>전략:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="simStrategyCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_11">
+           <property name="text">
+            <string>투자금액:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="simInvestment">
+           <property name="minimum">
+            <number>100000</number>
+           </property>
+           <property name="maximum">
+            <number>1000000000</number>
+           </property>
+           <property name="singleStep">
+            <number>100000</number>
+           </property>
+           <property name="value">
+            <number>1000000</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="simStartBtn">
+           <property name="text">
+            <string>시뮬레이션 시작</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QScrollArea" name="scrollArea_2">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="scrollAreaWidgetContents_2">
+          <layout class="QVBoxLayout" name="simParamLayout">
+          </layout>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="simStatus">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tradeTab">
+      <attribute name="title">
+       <string>자동매매</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_5">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_4">
+         <item>
+          <widget class="QLabel" name="label_12">
+           <property name="text">
+            <string>코인:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="tradeCoinCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_13">
+           <property name="text">
+            <string>전략:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="tradeStrategyCombo"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_14">
+           <property name="text">
+            <string>투자금액:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="tradeInvestment">
+           <property name="minimum">
+            <number>100000</number>
+           </property>
+           <property name="maximum">
+            <number>1000000000</number>
+           </property>
+           <property name="singleStep">
+            <number>100000</number>
+           </property>
+           <property name="value">
+            <number>1000000</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="tradeStartBtn">
+           <property name="text">
+            <string>자동매매 시작</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QScrollArea" name="scrollArea_3">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="scrollAreaWidgetContents_3">
+          <layout class="QVBoxLayout" name="tradeParamLayout">
+          </layout>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="tradeStatus">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui> 

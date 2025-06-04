@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>차트</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <item>
+      <widget class="QLabel" name="coinLabel">
+       <property name="text">
+        <string>코인:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="coinCombo">
+       <item>
+        <property name="text">
+         <string>BTC</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ETH</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>XRP</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ADA</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="intervalLabel">
+       <property name="text">
+        <string>시간 단위:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="intervalCombo">
+       <item>
+        <property name="text">
+         <string>1분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>3분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>5분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>15분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>30분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>60분봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>일봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>주봉</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>월봉</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="periodLabel">
+       <property name="text">
+        <string>기간:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="periodCombo">
+       <item>
+        <property name="text">
+         <string>1일</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>3일</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>1주</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>2주</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>1개월</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>3개월</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>6개월</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>1년</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="updateBtn">
+       <property name="text">
+        <string>차트 업데이트</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="candleTab">
+      <attribute name="title">
+       <string>캔들차트</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QWidget" name="candleChart" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="indicatorTab">
+      <attribute name="title">
+       <string>지표</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QLabel" name="indicatorLabel">
+           <property name="text">
+            <string>지표:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="indicatorCombo">
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>볼린저밴드</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>이동평균선</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>스토캐스틱</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>ATR</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="addIndicatorBtn">
+           <property name="text">
+            <string>지표 추가</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QWidget" name="indicatorChart" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="volumeTab">
+      <attribute name="title">
+       <string>거래량</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
+        <widget class="QWidget" name="volumeChart" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui> 
