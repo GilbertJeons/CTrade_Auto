@@ -1723,7 +1723,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[rsi < oversold, 'signal'] = 1
             df.loc[rsi > overbought, 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='RSI',
+                params={'period': period, 'overbought': overbought, 'oversold': oversold},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"RSI 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -1753,7 +1765,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[df['close'] < lower, 'signal'] = 1
             df.loc[df['close'] > upper, 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='BollingerBands',
+                params={'period': period, 'std': std},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"볼린저 밴드 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -1783,7 +1807,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[(macd > signal) & (macd.shift(1) <= signal.shift(1)), 'signal'] = 1
             df.loc[(macd < signal) & (macd.shift(1) >= signal.shift(1)), 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='MACD',
+                params={'fast_period': fast_period, 'slow_period': slow_period, 'signal_period': signal_period},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"MACD 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -1813,7 +1849,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[(short_ma > long_ma) & (short_ma.shift(1) <= long_ma.shift(1)), 'signal'] = 1
             df.loc[(short_ma < long_ma) & (short_ma.shift(1) >= long_ma.shift(1)), 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='MovingAverages',
+                params={'short_period': short_period, 'long_period': long_period},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"이동평균선 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -1843,7 +1891,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[(k < oversold) & (d < oversold), 'signal'] = 1
             df.loc[(k > overbought) & (d > overbought), 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='Stochastic',
+                params={'period': period, 'k_period': k_period, 'd_period': d_period, 'overbought': overbought, 'oversold': oversold},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"스토캐스틱 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -1873,7 +1933,19 @@ MDD: {mdd:.2f}%
             df['signal'] = 0
             df.loc[df['close'] < df['close'].shift(1) - multiplier * atr, 'signal'] = 1
             df.loc[df['close'] > df['close'].shift(1) + multiplier * atr, 'signal'] = -1
-            return self.calculate_backtest_results_with_fee(df, fee_rate=fee_rate)
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_strategy(
+                strategy_name='ATR',
+                params={'period': period, 'multiplier': multiplier},
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+                initial_capital=initial_capital
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             self.backtestStatus.append(f"ATR 백테스팅 실패: {str(e)}")
             traceback.print_exc()
@@ -2956,25 +3028,24 @@ MDD: {mdd:.2f}%
     # 자동매매 탭에서는 self.tradeRsiPeriod.value() 등 사용
 
     def backtest_volume_profile(self, num_bins, start_date, end_date, interval, initial_capital, fee_rate):
-        """거래량 프로파일 전략 백테스트"""
         try:
             df = self._fetch_historical_data(start_date, end_date, interval)
             if df is None or len(df) < 30:
                 return None
-                
+
             # 거래량 프로파일 계산
             bins, volume_profile = self.calculate_volume_profile(df, num_bins)
-            
+
             # 매매 신호 생성
             trades = []
             position = None
             entry_price = 0
             entry_time = None
-            
+
             for i in range(30, len(df)):
                 current_data = df.iloc[:i+1]
                 signal = self.generate_volume_signal(current_data['close'].iloc[-1], current_data['volume'].iloc[-1], current_data)
-                
+
                 if signal == 'buy' and position is None:
                     position = 'long'
                     entry_price = df['close'].iloc[i]
@@ -2984,7 +3055,7 @@ MDD: {mdd:.2f}%
                     profit = (exit_price - entry_price) * (initial_capital / entry_price)
                     profit -= self.calculate_fee(initial_capital / entry_price, entry_price)  # 매수 수수료
                     profit -= self.calculate_fee(initial_capital / entry_price, exit_price)   # 매도 수수료
-                    
+
                     trades.append({
                         'date': entry_time,
                         'type': 'buy',
@@ -2994,32 +3065,36 @@ MDD: {mdd:.2f}%
                         'profit': profit,
                         'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
                     })
-                    
+
                     position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_volume_profile(
+                num_bins, start_date, end_date, interval, initial_capital, fee_rate
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             print(f"거래량 프로파일 백테스팅 오류: {str(e)}")
             return None
-            
+
     def backtest_ml(self, n_estimators, random_state, start_date, end_date, interval, initial_capital, fee_rate):
-        """머신러닝 전략 백테스트"""
         try:
             df = self._fetch_historical_data(start_date, end_date, interval)
             if df is None or len(df) < 30:
                 return None
-                
+
             # 머신러닝 모델 학습 및 예측
             trades = []
             position = None
             entry_price = 0
             entry_time = None
-            
+
             for i in range(30, len(df)):
                 current_data = df.iloc[:i+1]
                 signal = self.generate_ml_signal(current_data['close'].iloc[-1], current_data)
-                
+
                 if signal == 'buy' and position is None:
                     position = 'long'
                     entry_price = df['close'].iloc[i]
@@ -3029,7 +3104,7 @@ MDD: {mdd:.2f}%
                     profit = (exit_price - entry_price) * (initial_capital / entry_price)
                     profit -= self.calculate_fee(initial_capital / entry_price, entry_price)  # 매수 수수료
                     profit -= self.calculate_fee(initial_capital / entry_price, exit_price)   # 매도 수수료
-                    
+
                     trades.append({
                         'date': entry_time,
                         'type': 'buy',
@@ -3039,11 +3114,53 @@ MDD: {mdd:.2f}%
                         'profit': profit,
                         'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
                     })
-                    
+
                     position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
+
+            # --- 전략 엔진으로 백테스트 실행 ---
+            from strategies import BacktestEngine
+            engine = BacktestEngine(fee_rate=fee_rate)
+            result = engine.backtest_ml(
+                n_estimators, random_state, start_date, end_date, interval, initial_capital, fee_rate
+            )
+            self.handle_backtest_results(df, result, initial_capital)
         except Exception as e:
             print(f"머신러닝 백테스팅 오류: {str(e)}")
             return None
+
+    def handle_backtest_results(self, df, result, initial_capital):
+        if not result:
+            self.backtestStatus.append("백테스팅 결과가 없습니다.")
+            return
+        trades = result['trades']
+        daily_balance = result['daily_balance']
+        final_capital = result['final_capital']
+        profit_rate = result['profit_rate']
+        win_rate = result['win_rate']
+        total_trades = result['total_trades']
+        # 결과 출력
+        result_text = f"""=== 백테스팅 결과 (수수료 포함) ===\n초기 자본금: {initial_capital:,.0f}원\n최종 자본금: {final_capital:,.0f}원\n수익률: {profit_rate:.2f}%\n승률: {win_rate:.2f}%\n총 거래 횟수: {total_trades}회"""
+        self.backtestStatus.append(result_text)
+        # 거래 내역 저장
+        if trades:
+            try:
+                trades_df = pd.DataFrame(trades)
+                conn = sqlite3.connect('backtest_results.db')
+                table_name = f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                trades_df.to_sql(table_name, conn, if_exists='replace', index=False)
+                results_df = pd.DataFrame([{
+                    'initial_capital': initial_capital,
+                    'final_capital': final_capital,
+                    'profit_rate': profit_rate,
+                    'win_rate': win_rate,
+                    'total_trades': total_trades,
+                    'start_date': df.index[0],
+                    'end_date': df.index[-1]
+                }])
+                results_df.to_sql(f"results_{table_name}", conn, if_exists='replace', index=False)
+                conn.close()
+                self.backtestStatus.append(f"\n거래 내역이 {table_name} 테이블에 저장되었습니다.")
+            except Exception as e:
+                self.backtestStatus.append(f"\n거래 내역 저장 중 오류 발생: {str(e)}")
+            self.show_trade_log_signal.emit(trades)
+        self.plot_backtest_results(df, trades, final_capital, daily_balance)
