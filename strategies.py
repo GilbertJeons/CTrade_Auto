@@ -200,26 +200,50 @@ class BacktestEngine:
         return amount * price * self.fee_rate
         
     def calculate_backtest_results(self, df, trades, initial_capital):
-        """백테스팅 결과 계산"""
+        """백테스팅 결과 계산 (자본금 변화 포함)"""
         if not trades:
             return None
-            
         total_trades = len(trades)
         winning_trades = len([t for t in trades if t['profit'] > 0])
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
         final_capital = initial_capital
+        # === 자본금 변화 계산 ===
+        daily_balance = []
+        position = 0
+        capital = initial_capital
+        trade_idx = 0
+        current_trade = trades[trade_idx] if trades else None
+        in_position = False
+        for i in range(len(df)):
+            date = df.index[i]
+            price = df['close'].iloc[i]
+            # 진입 시점
+            if current_trade and 'date' in current_trade and date == current_trade['date']:
+                position = capital / price
+                capital = 0
+                in_position = True
+            # 퇴출 시점
+            if current_trade and 'exit_date' in current_trade and date == current_trade['exit_date']:
+                capital = position * price
+                position = 0
+                in_position = False
+                trade_idx += 1
+                if trade_idx < len(trades):
+                    current_trade = trades[trade_idx]
+                else:
+                    current_trade = None
+            current_balance = capital + (position * price)
+            daily_balance.append({'date': date, 'balance': current_balance})
         for trade in trades:
             final_capital += trade['profit']
-            
         profit_rate = ((final_capital - initial_capital) / initial_capital * 100)
-        
         return {
             'total_trades': total_trades,
             'win_rate': win_rate,
             'profit_rate': profit_rate,
             'final_capital': final_capital,
-            'trades': trades
+            'trades': trades,
+            'daily_balance': daily_balance,
         }
         
     def backtest_strategy(self, strategy_name, params, start_date, end_date, interval, initial_capital):

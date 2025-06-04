@@ -2040,21 +2040,20 @@ MDD: {mdd:.2f}%
             ax1.legend(by_label.values(), by_label.keys())
 
             # 자본금 변화 그래프
-            has_balance = False
-            if isinstance(daily_balance, list):
+            if daily_balance is not None and len(daily_balance) > 0:
                 try:
-                    daily_balance_df = pd.DataFrame(daily_balance)
-                    if 'date' in daily_balance_df.columns and 'balance' in daily_balance_df.columns and not daily_balance_df.empty:
-                        daily_balance_df.set_index('date', inplace=True)
-                        ax2.plot(daily_balance_df.index, daily_balance_df['balance'], label='자본금', color='purple')
-                        has_balance = True
-                except Exception:
-                    pass
-            elif hasattr(daily_balance, 'index') and hasattr(daily_balance, 'values') and len(daily_balance) > 0:
-                ax2.plot(daily_balance.index, daily_balance.values, label='자본금', color='purple')
-                has_balance = True
-            if has_balance:
-                ax2.legend()
+                    if isinstance(daily_balance, list):
+                        daily_balance_df = pd.DataFrame(daily_balance)
+                        if 'date' in daily_balance_df.columns and 'balance' in daily_balance_df.columns:
+                            daily_balance_df.set_index('date', inplace=True)
+                            ax2.plot(daily_balance_df.index, daily_balance_df['balance'], label='자본금', color='purple')
+                    elif isinstance(daily_balance, pd.DataFrame):
+                        if 'balance' in daily_balance.columns:
+                            ax2.plot(daily_balance.index, daily_balance['balance'], label='자본금', color='purple')
+                    ax2.legend()
+                except Exception as e:
+                    print(f"자본금 차트 생성 중 오류: {str(e)}")
+                    ax2.text(0.5, 0.5, f'자본금 데이터 처리 오류: {str(e)}', ha='center', va='center', transform=ax2.transAxes)
             else:
                 ax2.text(0.5, 0.5, '자본금 데이터 없음', ha='center', va='center', transform=ax2.transAxes)
 
