@@ -367,6 +367,199 @@
          </property>
          <widget class="QWidget" name="scrollAreaWidgetContents">
           <layout class="QVBoxLayout" name="backtestParamLayout">
+           <item>
+            <widget class="QLabel" name="strategyDescriptionLabel">
+             <property name="text">
+              <string>전략 설명이 여기에 표시됩니다.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="feeGroup">
+             <property name="title">
+              <string>수수료 설정</string>
+             </property>
+             <layout class="QHBoxLayout" name="feeLayout">
+              <item>
+               <widget class="QLabel" name="feeLabel">
+                <property name="text">
+                 <string>수수료율:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QDoubleSpinBox" name="feeRateSpinBox">
+                <property name="minimum">
+                 <double>0.0001</double>
+                </property>
+                <property name="maximum">
+                 <double>0.01</double>
+                </property>
+                <property name="singleStep">
+                 <double>0.0001</double>
+                </property>
+                <property name="decimals">
+                 <number>4</number>
+                </property>
+                <property name="value">
+                 <double>0.00025</double>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="feeRangeLabel">
+                <property name="text">
+                 <string>(0.01% ~ 1%)</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QStackedWidget" name="backtestParamStackedWidget">
+             <property name="currentIndex">
+              <number>0</number>
+             </property>
+             <widget class="QWidget" name="rsiPage">
+              <layout class="QVBoxLayout" name="verticalLayout_rsi">
+               <item>
+                <widget class="QGroupBox" name="rsiGroup">
+                 <property name="title"><string>RSI 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_rsi">
+                  <item row="0" column="0"><widget class="QLabel" name="label_rsi_period"><property name="text"><string>기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="rsiPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>14</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_rsi_overbought"><property name="text"><string>과매수:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="rsiOverbought"><property name="minimum"><number>50</number></property><property name="maximum"><number>100</number></property><property name="value"><number>70</number></property></widget></item>
+                  <item row="2" column="0"><widget class="QLabel" name="label_rsi_oversold"><property name="text"><string>과매도:</string></property></widget></item>
+                  <item row="2" column="1"><widget class="QSpinBox" name="rsiOversold"><property name="minimum"><number>0</number></property><property name="maximum"><number>50</number></property><property name="value"><number>30</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="bbPage">
+              <layout class="QVBoxLayout" name="verticalLayout_bb">
+               <item>
+                <widget class="QGroupBox" name="bbGroup">
+                 <property name="title"><string>볼린저밴드 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_bb">
+                  <item row="0" column="0"><widget class="QLabel" name="label_bb_period"><property name="text"><string>기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="bbPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>20</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_bb_std"><property name="text"><string>표준편차:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="bbStd"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>5.0</double></property><property name="value"><double>2.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="macdPage">
+              <layout class="QVBoxLayout" name="verticalLayout_macd">
+               <item>
+                <widget class="QGroupBox" name="macdGroup">
+                 <property name="title"><string>MACD 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_macd">
+                  <item row="0" column="0"><widget class="QLabel" name="label_macd_fast"><property name="text"><string>빠른 기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="macdFastPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>12</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_macd_slow"><property name="text"><string>느린 기간:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="macdSlowPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>26</number></property></widget></item>
+                  <item row="2" column="0"><widget class="QLabel" name="label_macd_signal"><property name="text"><string>시그널 기간:</string></property></widget></item>
+                  <item row="2" column="1"><widget class="QSpinBox" name="macdSignalPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>9</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="maPage">
+              <layout class="QVBoxLayout" name="verticalLayout_ma">
+               <item>
+                <widget class="QGroupBox" name="maGroup">
+                 <property name="title"><string>이동평균선 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_ma">
+                  <item row="0" column="0"><widget class="QLabel" name="label_ma_short"><property name="text"><string>단기 기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="maShortPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>5</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_ma_long"><property name="text"><string>장기 기간:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="maLongPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>200</number></property><property name="value"><number>20</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="stochPage">
+              <layout class="QVBoxLayout" name="verticalLayout_stoch">
+               <item>
+                <widget class="QGroupBox" name="stochGroup">
+                 <property name="title"><string>스토캐스틱 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_stoch">
+                  <item row="0" column="0"><widget class="QLabel" name="label_stoch_period"><property name="text"><string>기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="stochPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>14</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_stoch_k"><property name="text"><string>K 기간:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="stochKPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>3</number></property></widget></item>
+                  <item row="2" column="0"><widget class="QLabel" name="label_stoch_d"><property name="text"><string>D 기간:</string></property></widget></item>
+                  <item row="2" column="1"><widget class="QSpinBox" name="stochDPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>3</number></property></widget></item>
+                  <item row="3" column="0"><widget class="QLabel" name="label_stoch_overbought"><property name="text"><string>과매수:</string></property></widget></item>
+                  <item row="3" column="1"><widget class="QSpinBox" name="stochOverbought"><property name="minimum"><number>50</number></property><property name="maximum"><number>100</number></property><property name="value"><number>80</number></property></widget></item>
+                  <item row="4" column="0"><widget class="QLabel" name="label_stoch_oversold"><property name="text"><string>과매도:</string></property></widget></item>
+                  <item row="4" column="1"><widget class="QSpinBox" name="stochOversold"><property name="minimum"><number>0</number></property><property name="maximum"><number>50</number></property><property name="value"><number>20</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="atrPage">
+              <layout class="QVBoxLayout" name="verticalLayout_atr">
+               <item>
+                <widget class="QGroupBox" name="atrGroup">
+                 <property name="title"><string>ATR 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_atr">
+                  <item row="0" column="0"><widget class="QLabel" name="label_atr_period"><property name="text"><string>기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="atrPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>14</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_atr_multiplier"><property name="text"><string>승수:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="atrMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>5.0</double></property><property name="value"><double>2.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="2" column="0"><widget class="QLabel" name="label_trend_period"><property name="text"><string>추세 기간:</string></property></widget></item>
+                  <item row="2" column="1"><widget class="QSpinBox" name="trendPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>20</number></property></widget></item>
+                  <item row="3" column="0"><widget class="QLabel" name="label_stop_loss_multiplier"><property name="text"><string>스탑로스 승수:</string></property></widget></item>
+                  <item row="3" column="1"><widget class="QDoubleSpinBox" name="stopLossMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>10.0</double></property><property name="value"><double>1.5</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="4" column="0"><widget class="QLabel" name="label_position_size_multiplier"><property name="text"><string>포지션 사이징 승수:</string></property></widget></item>
+                  <item row="4" column="1"><widget class="QDoubleSpinBox" name="positionSizeMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>10.0</double></property><property name="value"><double>1.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="volumeProfilePage">
+              <layout class="QVBoxLayout" name="verticalLayout_volumeProfile">
+               <item>
+                <widget class="QGroupBox" name="volumeProfileGroup">
+                 <property name="title"><string>거래량 프로파일 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_volume">
+                  <item row="0" column="0"><widget class="QLabel" name="label_volume"><property name="text"><string>거래량 임계값:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="volumeThreshold"><property name="minimum"><number>1</number></property><property name="maximum"><number>1000000</number></property><property name="value"><number>1000</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <widget class="QWidget" name="mlPage">
+              <layout class="QVBoxLayout" name="verticalLayout_ml">
+               <item>
+                <widget class="QGroupBox" name="mlGroup">
+                 <property name="title"><string>머신러닝 파라미터</string></property>
+                 <layout class="QFormLayout" name="formLayout_ml">
+                  <item row="0" column="0"><widget class="QLabel" name="label_ml"><property name="text"><string>예측 기간:</string></property></widget></item>
+                  <item row="0" column="1"><widget class="QSpinBox" name="predictionPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>30</number></property><property name="value"><number>5</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_ml2"><property name="text"><string>학습 기간:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="trainingPeriod"><property name="minimum"><number>10</number></property><property name="maximum"><number>365</number></property><property name="value"><number>30</number></property></widget></item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
           </layout>
          </widget>
         </widget>

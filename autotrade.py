@@ -25,6 +25,8 @@ import itertools
 import matplotlib.gridspec as gridspec
 import optuna
 from strategies import StrategyFactory, BacktestEngine
+import logging
+import csv
 
 # 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
@@ -38,7 +40,64 @@ class AutoTradeWindow(QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent
+        self.setWindowTitle("자동매매 시스템")
+        self.setGeometry(100, 100, 1200, 800)
+        
+        # UI 로드
+        uic.loadUi('autotrade.ui', self)
+        
+        # 차트 초기화
+        self.figure = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.figure)
+        
+        # 로깅 시스템 초기화
+        self.setup_logging()
+        
+        # 백테스트 엔진 초기화
+        self.backtest_engine = BacktestEngine()
+        
+        # 시뮬레이션 관련 변수
+        self.simulation_running = False
+        self.simulation_thread = None
+        self.simulation_stop_event = threading.Event()
+        
+        # 자동매매 관련 변수
+        self.auto_trading_running = False
+        self.auto_trading_thread = None
+        self.auto_trading_stop_event = threading.Event()
+        
+        # 차트 관련 변수
+        self.chart_window = None
+        self.chart_update_timer = None
+        self.realtime_chart_window = None
+        
+        # 데이터 수집 관련 변수
+        self.data_collection_running = False
+        self.data_collection_thread = None
+        self.data_collection_stop_event = threading.Event()
+        
+        # 실시간 데이터 저장용 변수
+        self.realtime_data = []
+        self.realtime_timer = QTimer()
+        self.realtime_timer.timeout.connect(self.fetch_realtime_data)
+        
+        # API 연결 상태
+        self.is_connected = False
+        
+        # 파라미터 그룹 설정
+        self.setup_param_groups()
+        self.setup_sim_param_groups()
+        self.setup_trade_param_groups()
+        
+        # 시그널 연결
+        self.setup_connections()
+        self.update_sim_status.connect(self.simStatus.append)
+        self.show_sim_chart_signal.connect(self.show_simulation_chart)
+        self.show_trade_log_signal.connect(self.show_trade_log_dialog)
+        self.update_data_result.connect(self.append_data_result)
+        
+        # 코인 리스트 초기화
+        self.init_coin_list()
         
         # 실시간 데이터 저장용 변수
         self.realtime_price_data = []
@@ -50,44 +109,12 @@ class AutoTradeWindow(QDialog):
         self.realtime_running = False
         self.realtime_timer = QTimer()
         self.realtime_timer.timeout.connect(self.fetch_realtime_data)
-        self.realtime_chart_window = None
         
         # 전략 파라미터 그룹
         self.param_groups = {}
         self.sim_param_groups = {}
         self.trade_param_groups = {}
         
-        # UI 로드
-        uic.loadUi('autotrade.ui', self)
-        
-        # 차트 초기화
-        self.figure = Figure(figsize=(8, 6))
-        self.canvas = FigureCanvas(self.figure)
-        
-        # 시그널/슬롯 연결
-        self.setup_connections()
-        self.update_sim_status.connect(self.simStatus.append)
-        self.show_sim_chart_signal.connect(self.show_simulation_chart)
-        self.show_trade_log_signal.connect(self.show_trade_log_dialog)
-        self.update_data_result.connect(self.append_data_result)
-        
-        # 자동매매 상태 변수
-        self.trading_enabled = False
-        self.price_update_thread = None
-        self.simulation_thread = None
-        self.trading_thread = None
-        
-        # 코인 목록 초기화
-        self.init_coin_list()
-        
-        # API 연결 상태
-        self.is_connected = False
-        
-        # 파라미터 그룹 설정
-        self.setup_param_groups()
-        self.setup_sim_param_groups()
-        self.setup_trade_param_groups()
-
         # --- 전략 콤보박스 중복 방지 및 파라미터 그룹 초기 표시 ---
         # (AutoTradeWindow __init__ 내)
         strategies = [
@@ -101,10 +128,16 @@ class AutoTradeWindow(QDialog):
         self.simStrategyCombo.addItems(strategies)
         self.tradeStrategyCombo.addItems(strategies)
 
+        # 전략 설명 라벨을 .ui에서 findChild로 연결
+        self.strategyDescriptionLabel = self.findChild(QLabel, 'strategyDescriptionLabel')
+
         # 각 탭의 현재 선택된 전략에 맞는 파라미터 그룹을 표시 (초기화)
         self.update_backtest_param_groups_visibility(self.strategyCombo.currentText())
         self.update_sim_param_groups_visibility(self.simStrategyCombo.currentText())
         self.update_trade_param_groups_visibility(self.tradeStrategyCombo.currentText())
+        
+        # 전략 설명 표시 (초기화)
+        self.update_strategy_description(self.strategyCombo.currentText())
         
         # 날짜 입력란을 오늘 날짜로 초기화
         from PyQt5.QtCore import QDate
@@ -169,6 +202,11 @@ class AutoTradeWindow(QDialog):
         # self.simStrategyCombo.addItems(strategies)
         # self.tradeStrategyCombo.addItems(strategies)
         
+        self.setup_logging()  # 반드시 __init__에서 호출
+
+        # __init__ 내에 추가
+        self.strategyCombo.currentTextChanged.connect(self.update_backtest_param_page)
+
     def init_coin_list(self):
         try:
             # 기본 코인 목록 설정
@@ -193,11 +231,10 @@ class AutoTradeWindow(QDialog):
         # 백테스팅 탭
         self.backtestStartBtn.clicked.connect(self.start_backtest)
         self.strategyCombo.currentTextChanged.connect(lambda text: self.update_param_groups(text))
-        
+        self.strategyCombo.currentTextChanged.connect(self.update_strategy_description)
         # 시뮬레이션 탭
         self.simStartBtn.clicked.connect(self.toggle_simulation)
         self.simStrategyCombo.currentTextChanged.connect(lambda text: self.update_sim_param_groups(text))
-        
         # 자동매매 탭
         self.tradeStartBtn.clicked.connect(self.toggle_auto_trading)
         self.tradeStrategyCombo.currentTextChanged.connect(lambda text: self.update_trade_param_groups(text))
@@ -431,49 +468,47 @@ class AutoTradeWindow(QDialog):
             traceback.print_exc()
     
     def start_backtest(self):
+        """백테스트 시작"""
         try:
-            # 백테스팅 파라미터 가져오기
+            # 파라미터 가져오기
+            strategy = self.strategyCombo.currentText()
             start_date = self.backtestStartDate.date().toPyDate()
             end_date = self.backtestEndDate.date().toPyDate()
             interval = self.backtestIntervalCombo.currentText()
-            strategy = self.strategyCombo.currentText()
-            initial_capital = self.backtestInvestment.value()
-            fee_rate = self.feeRateSpinBox.value()
+            initial_capital = float(self.backtestInvestment.text())
+            fee_rate = float(self.feeRateSpinBox.value())
             
-            self.backtestStatus.append(f"백테스팅 시작: {strategy} 전략")
-            self.backtestStatus.append(f"기간: {start_date} ~ {end_date}")
-            self.backtestStatus.append(f"초기자본: {initial_capital:,.0f}원")
-            self.backtestStatus.append(f"시간단위: {interval}")
-            
-            # 전략별 파라미터 설정
+            # 데이터 가져오기
+            df = self.backtest_engine._fetch_historical_data(start_date, end_date, interval)
+            if df is None:
+                QMessageBox.warning(self, "오류", "데이터를 가져올 수 없습니다.")
+                return
+                
+            # 전략별 파라미터 준비
             params = {}
-            if strategy == "RSI":
+            if strategy == 'RSI':
                 params = {
                     'period': self.rsiPeriod.value(),
                     'overbought': self.rsiOverbought.value(),
                     'oversold': self.rsiOversold.value()
                 }
-                self.backtestStatus.append(f"RSI 파라미터: 기간={params['period']}, 과매수={params['overbought']}, 과매도={params['oversold']}")
-            elif strategy == "볼린저밴드":
+            elif strategy == '볼린저밴드':
                 params = {
                     'period': self.bbPeriod.value(),
                     'std': self.bbStd.value()
                 }
-                self.backtestStatus.append(f"볼린저밴드 파라미터: 기간={params['period']}, 표준편차={params['std']}")
-            elif strategy == "MACD":
+            elif strategy == 'MACD':
                 params = {
                     'fast_period': self.macdFastPeriod.value(),
                     'slow_period': self.macdSlowPeriod.value(),
                     'signal_period': self.macdSignalPeriod.value()
                 }
-                self.backtestStatus.append(f"MACD 파라미터: 빠른기간={params['fast_period']}, 느린기간={params['slow_period']}, 시그널기간={params['signal_period']}")
-            elif strategy == "이동평균선 교차":
+            elif strategy == '이동평균선 교차':
                 params = {
                     'short_period': self.maShortPeriod.value(),
                     'long_period': self.maLongPeriod.value()
                 }
-                self.backtestStatus.append(f"이동평균선 파라미터: 단기={params['short_period']}, 장기={params['long_period']}")
-            elif strategy == "스토캐스틱":
+            elif strategy == '스토캐스틱':
                 params = {
                     'period': self.stochPeriod.value(),
                     'k_period': self.stochKPeriod.value(),
@@ -481,78 +516,264 @@ class AutoTradeWindow(QDialog):
                     'overbought': self.stochOverbought.value(),
                     'oversold': self.stochOversold.value()
                 }
-                self.backtestStatus.append(f"스토캐스틱 파라미터: 기간={params['period']}, K={params['k_period']}, D={params['d_period']}")
-            elif strategy == "ATR 기반 변동성 돌파":
+            elif strategy == 'ATR 기반 변동성 돌파':
                 params = {
                     'period': self.atrPeriod.value(),
                     'multiplier': self.atrMultiplier.value(),
-                    'trend_period': self.trendPeriod.value(),
-                    'stop_loss_multiplier': self.stopLossMultiplier.value(),
-                    'position_size_multiplier': self.positionSizeMultiplier.value()
+                    'trend_period': self.atrTrendPeriod.value(),
+                    'stop_loss_multiplier': self.atrStopLossMultiplier.value(),
+                    'position_size_multiplier': self.atrPositionSizeMultiplier.value()
                 }
-                self.backtestStatus.append(f"ATR 파라미터: 기간={params['period']}, 승수={params['multiplier']}, 추세기간={params['trend_period']}, 스탑로스={params['stop_loss_multiplier']}, 포지션사이징={params['position_size_multiplier']}")
-            elif strategy == "거래량 프로파일":
+            elif strategy == '거래량 프로파일':
                 params = {
-                    'num_bins': 10  # 기본값 설정
+                    'num_bins': self.volumeProfileBins.value()
                 }
-                self.backtestStatus.append(f"거래량 프로파일 파라미터: bins={params['num_bins']}")
-            elif strategy == "머신러닝":
+            elif strategy == '머신러닝':
                 params = {
-                    'n_estimators': 100,  # 기본값 설정
-                    'random_state': 42
+                    'n_estimators': self.mlNEstimators.value(),
+                    'max_depth': self.mlMaxDepth.value(),
+                    'random_state': self.mlRandomState.value()
                 }
-                self.backtestStatus.append(f"머신러닝 파라미터: n_estimators={params['n_estimators']}, random_state={params['random_state']}")
-            else:
-                self.backtestStatus.append(f"지원되지 않는 전략: {strategy}")
-                return
             
-            # 백테스팅 실행
-            self.backtestStatus.append("데이터 가져오는 중...")
-            backtest_engine = BacktestEngine(fee_rate=fee_rate)
-            if strategy == "거래량 프로파일":
-                results = backtest_engine.backtest_volume_profile(
-                    params['num_bins'], start_date, end_date, interval, initial_capital, fee_rate
-                )
-            elif strategy == "머신러닝":
-                results = backtest_engine.backtest_ml(
-                    params['n_estimators'], params['random_state'], start_date, end_date, interval, initial_capital, fee_rate
-                )
-            elif strategy == "ATR 기반 변동성 돌파":
-                results = backtest_engine.backtest_atr(
-                    params['period'], params['multiplier'], start_date, end_date, interval, initial_capital, fee_rate,
-                    params['trend_period'], params['stop_loss_multiplier'], params['position_size_multiplier']
-                )
+            # 백테스트 실행
+            results = None
+            if strategy == 'ATR 기반 변동성 돌파':
+                results = self.backtest_engine.backtest_atr(params, df, interval, initial_capital)
+            elif strategy == '머신러닝':
+                results = self.backtest_engine.backtest_ml(params, df, interval, initial_capital)
+            elif strategy == '거래량 프로파일':
+                results = self.backtest_engine.backtest_volume_profile(params, df, interval, initial_capital)
             else:
-                results = backtest_engine.backtest_strategy(
-                    strategy, params, start_date, end_date, interval, initial_capital
-                )
+                results = self.backtest_engine.backtest_strategy(strategy, params, df, interval, initial_capital)
             
-            if results is None or not results.get('trades'):
-                self.backtestStatus.append("백테스팅 결과가 없습니다.")
+            if results is None:
+                QMessageBox.warning(self, "오류", "백테스트 실행 중 오류가 발생했습니다.")
                 return
                 
-            # 결과 출력
-            self.backtestStatus.append(f"총 거래 횟수: {results['total_trades']}회")
-            self.backtestStatus.append(f"승률: {results['win_rate']:.2f}%")
-            self.backtestStatus.append(f"수익률: {results['profit_rate']:.2f}%")
-            self.backtestStatus.append(f"최종 자본: {results['final_capital']:,.0f}원")
-
-            # 거래내역 텍스트로도 출력
-            if results['trades']:
-                self.backtestStatus.append('--- 거래내역 ---')
-                for t in results['trades']:
-                    self.backtestStatus.append(
-                        f"진입: {t['date']} {t['price']:.0f}원 → 퇴출: {t['exit_date']} {t['exit_price']:.0f}원, 수익: {t['profit']:.0f}원, 수익률: {t['profit_rate']:.2f}%"
-                    )
-
-            # 거래 내역 표시
-            self.show_trade_log_dialog(results['trades'])
+            # 결과 처리
+            self.handle_backtest_results(df, results, initial_capital)
             
-            # 차트 그리기
-            df = backtest_engine._fetch_historical_data(start_date, end_date, interval)  # df 다시 가져오기
-            self.plot_backtest_results(df, results['trades'], results['final_capital'], results.get('daily_balance', []))
         except Exception as e:
-            self.backtestStatus.append(f"백테스팅 중 오류 발생: {str(e)}")
+            QMessageBox.critical(self, "오류", f"백테스트 실행 중 오류가 발생했습니다: {str(e)}")
+            traceback.print_exc()
+
+    def optimize_with_optuna(self, strategy, df, n_trials=100):
+        """Optuna를 사용한 파라미터 최적화"""
+        try:
+            def objective(trial):
+                # 전략별 파라미터 범위 설정
+                if strategy == 'RSI':
+                    params = {
+                        'period': trial.suggest_int('period', 5, 30),
+                        'overbought': trial.suggest_int('overbought', 60, 90),
+                        'oversold': trial.suggest_int('oversold', 10, 40)
+                    }
+                elif strategy == '볼린저밴드':
+                    params = {
+                        'period': trial.suggest_int('period', 10, 50),
+                        'std': trial.suggest_float('std', 1.0, 3.0)
+                    }
+                elif strategy == 'MACD':
+                    params = {
+                        'fast_period': trial.suggest_int('fast_period', 5, 20),
+                        'slow_period': trial.suggest_int('slow_period', 20, 50),
+                        'signal_period': trial.suggest_int('signal_period', 5, 20)
+                    }
+                elif strategy == '이동평균선 교차':
+                    params = {
+                        'short_period': trial.suggest_int('short_period', 5, 20),
+                        'long_period': trial.suggest_int('long_period', 20, 50)
+                    }
+                elif strategy == '스토캐스틱':
+                    params = {
+                        'period': trial.suggest_int('period', 5, 30),
+                        'k_period': trial.suggest_int('k_period', 1, 10),
+                        'd_period': trial.suggest_int('d_period', 1, 10),
+                        'overbought': trial.suggest_int('overbought', 60, 90),
+                        'oversold': trial.suggest_int('oversold', 10, 40)
+                    }
+                elif strategy == 'ATR 기반 변동성 돌파':
+                    params = {
+                        'period': trial.suggest_int('period', 5, 30),
+                        'multiplier': trial.suggest_float('multiplier', 1.0, 3.0),
+                        'trend_period': trial.suggest_int('trend_period', 10, 50),
+                        'stop_loss_multiplier': trial.suggest_float('stop_loss_multiplier', 1.0, 3.0),
+                        'position_size_multiplier': trial.suggest_float('position_size_multiplier', 0.5, 2.0)
+                    }
+                elif strategy == '거래량 프로파일':
+                    params = {
+                        'num_bins': trial.suggest_int('num_bins', 5, 20)
+                    }
+                elif strategy == '머신러닝':
+                    params = {
+                        'n_estimators': trial.suggest_int('n_estimators', 50, 200),
+                        'max_depth': trial.suggest_int('max_depth', 3, 10),
+                        'random_state': 42
+                    }
+                
+                # 백테스트 실행
+                interval = self.intervalCombo.currentText()
+                initial_capital = float(self.initialCapital.text())
+                
+                results = None
+                if strategy == 'ATR 기반 변동성 돌파':
+                    results = self.backtest_engine.backtest_atr(params, df, interval, initial_capital)
+                elif strategy == '머신러닝':
+                    results = self.backtest_engine.backtest_ml(params, df, interval, initial_capital)
+                elif strategy == '거래량 프로파일':
+                    results = self.backtest_engine.backtest_volume_profile(params, df, interval, initial_capital)
+                else:
+                    results = self.backtest_engine.backtest_strategy(strategy, params, df, interval, initial_capital)
+                
+                if results is None:
+                    return float('-inf')
+                    
+                return results['profit_rate']
+            
+            # Optuna 스터디 생성 및 최적화 실행
+            study = optuna.create_study(direction='maximize')
+            study.optimize(objective, n_trials=n_trials)
+            
+            return study.best_params, study.best_value
+            
+        except Exception as e:
+            print(f"Optuna 최적화 오류: {str(e)}")
+            traceback.print_exc()
+            return None, None
+
+    def run_optuna_optimization(self):
+        """Optuna 최적화 실행"""
+        try:
+            # 파라미터 가져오기
+            strategy = self.strategyCombo.currentText()
+            start_date = self.startDate.date().toPyDate()
+            end_date = self.endDate.date().toPyDate()
+            interval = self.intervalCombo.currentText()
+            n_trials = int(self.optunaTrials.text())
+            
+            # 데이터 가져오기
+            df = self.backtest_engine._fetch_historical_data(start_date, end_date, interval)
+            if df is None:
+                QMessageBox.warning(self, "오류", "데이터를 가져올 수 없습니다.")
+                return
+                
+            # 최적화 실행
+            best_params, best_value = self.optimize_with_optuna(strategy, df, n_trials)
+            
+            if best_params is None:
+                QMessageBox.warning(self, "오류", "최적화 실행 중 오류가 발생했습니다.")
+                return
+                
+            # 결과 표시
+            self.show_optuna_results(best_params, best_value)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"최적화 실행 중 오류가 발생했습니다: {str(e)}")
+            traceback.print_exc()
+
+    def handle_backtest_results(self, df, result, initial_capital):
+        """백테스트 결과 처리"""
+        try:
+            if result is None:
+                return
+                
+            # 현재 시간
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 전략 이름과 파라미터 가져오기
+            strategy = self.strategyCombo.currentText()
+            params = {}
+            if strategy == 'RSI':
+                params = {
+                    'period': self.rsiPeriod.value(),
+                    'overbought': self.rsiOverbought.value(),
+                    'oversold': self.rsiOversold.value()
+                }
+            elif strategy == '볼린저밴드':
+                params = {
+                    'period': self.bbPeriod.value(),
+                    'std': self.bbStd.value()
+                }
+            elif strategy == 'MACD':
+                params = {
+                    'fast_period': self.macdFastPeriod.value(),
+                    'slow_period': self.macdSlowPeriod.value(),
+                    'signal_period': self.macdSignalPeriod.value()
+                }
+            elif strategy == '이동평균선 교차':
+                params = {
+                    'short_period': self.maShortPeriod.value(),
+                    'long_period': self.maLongPeriod.value()
+                }
+            elif strategy == '스토캐스틱':
+                params = {
+                    'period': self.stochPeriod.value(),
+                    'k_period': self.stochKPeriod.value(),
+                    'd_period': self.stochDPeriod.value(),
+                    'overbought': self.stochOverbought.value(),
+                    'oversold': self.stochOversold.value()
+                }
+            elif strategy == 'ATR 기반 변동성 돌파':
+                params = {
+                    'period': self.atrPeriod.value(),
+                    'multiplier': self.atrMultiplier.value(),
+                    'trend_period': self.atrTrendPeriod.value(),
+                    'stop_loss_multiplier': self.atrStopLossMultiplier.value(),
+                    'position_size_multiplier': self.atrPositionSizeMultiplier.value()
+                }
+            elif strategy == '거래량 프로파일':
+                params = {
+                    'num_bins': self.volumeProfileBins.value()
+                }
+            elif strategy == '머신러닝':
+                params = {
+                    'n_estimators': self.mlNEstimators.value(),
+                    'max_depth': self.mlMaxDepth.value(),
+                    'random_state': self.mlRandomState.value()
+                }
+            
+            # 파라미터를 문자열로 변환
+            params_str = json.dumps(params, ensure_ascii=False)
+            
+            # CSV에 결과 저장
+            with open('backtest_results_log.csv', 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    current_time,  # 실행 시간
+                    strategy,      # 전략 이름
+                    params_str,    # 파라미터
+                    initial_capital,  # 초기자본
+                    result['final_capital'],  # 최종자본
+                    result['profit_rate'],    # 수익률
+                    result['win_rate'],       # 승률
+                    result['total_trades'],   # 총 거래 횟수
+                    df.index[0].date(),       # 시작일
+                    df.index[-1].date(),      # 종료일
+                    df.index[0],              # 시작 시간
+                    df.index[-1],             # 종료 시간
+                    self.backtestIntervalCombo.currentText(),  # 시간단위
+                    'BTC'                      # 코인
+                ])
+            
+            # 결과 표시
+            self.backtestStatus.append(f"=== 백테스트 결과 ===")
+            self.backtestStatus.append(f"전략: {strategy}")
+            self.backtestStatus.append(f"파라미터: {params_str}")
+            self.backtestStatus.append(f"초기자본: {initial_capital:,.0f}원")
+            self.backtestStatus.append(f"최종자본: {result['final_capital']:,.0f}원")
+            self.backtestStatus.append(f"수익률: {result['profit_rate']:.2f}%")
+            self.backtestStatus.append(f"승률: {result['win_rate']:.2f}%")
+            self.backtestStatus.append(f"총 거래 횟수: {result['total_trades']}회")
+            
+            # 차트 표시
+            self.plot_backtest_results(df, result['trades'], result['final_capital'], result['daily_balance'])
+            
+            # 거래 내역 표시
+            if result['trades']:
+                self.show_trade_log_dialog(result['trades'])
+                
+        except Exception as e:
+            self.backtestStatus.append(f"결과 처리 중 오류 발생: {str(e)}")
             traceback.print_exc()
 
     def calculate_backtest_results_with_fee(self, df, date_col='index', trades=None, daily_balance=None, final_capital=None, fee_rate=0.0005, show_ui=True):
@@ -756,123 +977,40 @@ MDD: {mdd:.2f}%
         ])
 
     def setup_param_groups(self):
-        # 백테스팅 탭 전용 그룹만 생성 및 addWidget
-        self.feeGroup = QGroupBox("수수료 설정")
-        feeLayout = QHBoxLayout()
-        self.feeLabel = QLabel("수수료율:")
-        self.feeRateSpinBox = QDoubleSpinBox()
-        self.feeRateSpinBox.setRange(0.0001, 0.01)
-        self.feeRateSpinBox.setSingleStep(0.0001)
-        self.feeRateSpinBox.setDecimals(4)
-        self.feeRateSpinBox.setValue(0.00025)
-        self.feeRangeLabel = QLabel("(0.01% ~ 1%)")
-        feeLayout.addWidget(self.feeLabel)
-        feeLayout.addWidget(self.feeRateSpinBox)
-        feeLayout.addWidget(self.feeRangeLabel)
-        self.feeGroup.setLayout(feeLayout)
-        self.backtestParamLayout.addWidget(self.feeGroup)
-
-        self.rsiGroup = self.create_param_group('RSI')
-        self.rsiPeriod = QSpinBox(); self.rsiPeriod.setRange(1, 100); self.rsiPeriod.setValue(14)
-        self.rsiOverbought = QSpinBox(); self.rsiOverbought.setRange(50, 100); self.rsiOverbought.setValue(70)
-        self.rsiOversold = QSpinBox(); self.rsiOversold.setRange(0, 50); self.rsiOversold.setValue(30)
-        self.rsiGroup.layout().addRow("기간:", self.rsiPeriod)
-        self.rsiGroup.layout().addRow("과매수:", self.rsiOverbought)
-        self.rsiGroup.layout().addRow("과매도:", self.rsiOversold)
-        self.rsiGroup.hide()
-        self.backtestParamLayout.addWidget(self.rsiGroup)
-
-        self.bbGroup = self.create_param_group('볼린저밴드')
-        self.bbPeriod = QSpinBox(); self.bbPeriod.setRange(1, 100); self.bbPeriod.setValue(20)
-        self.bbStd = QDoubleSpinBox(); self.bbStd.setRange(0.1, 5.0); self.bbStd.setValue(2.0); self.bbStd.setSingleStep(0.1)
-        self.bbGroup.layout().addRow("기간:", self.bbPeriod)
-        self.bbGroup.layout().addRow("표준편차:", self.bbStd)
-        self.bbGroup.hide()
-        self.backtestParamLayout.addWidget(self.bbGroup)
-
-        self.macdGroup = self.create_param_group('MACD')
-        self.macdFastPeriod = QSpinBox(); self.macdFastPeriod.setRange(1, 100); self.macdFastPeriod.setValue(12)
-        self.macdSlowPeriod = QSpinBox(); self.macdSlowPeriod.setRange(1, 100); self.macdSlowPeriod.setValue(26)
-        self.macdSignalPeriod = QSpinBox(); self.macdSignalPeriod.setRange(1, 100); self.macdSignalPeriod.setValue(9)
-        self.macdGroup.layout().addRow("빠른 기간:", self.macdFastPeriod)
-        self.macdGroup.layout().addRow("느린 기간:", self.macdSlowPeriod)
-        self.macdGroup.layout().addRow("시그널 기간:", self.macdSignalPeriod)
-        self.macdGroup.hide()
-        self.backtestParamLayout.addWidget(self.macdGroup)
-
-        self.maGroup = self.create_param_group('이동평균선')
-        self.maShortPeriod = QSpinBox(); self.maShortPeriod.setRange(1, 100); self.maShortPeriod.setValue(5)
-        self.maLongPeriod = QSpinBox(); self.maLongPeriod.setRange(1, 200); self.maLongPeriod.setValue(20)
-        self.maGroup.layout().addRow("단기 기간:", self.maShortPeriod)
-        self.maGroup.layout().addRow("장기 기간:", self.maLongPeriod)
-        self.maGroup.hide()
-        self.backtestParamLayout.addWidget(self.maGroup)
-
-        self.stochGroup = self.create_param_group('스토캐스틱')
-        self.stochPeriod = QSpinBox(); self.stochPeriod.setRange(1, 100); self.stochPeriod.setValue(14)
-        self.stochKPeriod = QSpinBox(); self.stochKPeriod.setRange(1, 100); self.stochKPeriod.setValue(3)
-        self.stochDPeriod = QSpinBox(); self.stochDPeriod.setRange(1, 100); self.stochDPeriod.setValue(3)
-        self.stochOverbought = QSpinBox(); self.stochOverbought.setRange(50, 100); self.stochOverbought.setValue(80)
-        self.stochOversold = QSpinBox(); self.stochOversold.setRange(0, 50); self.stochOversold.setValue(20)
-        self.stochGroup.layout().addRow("기간:", self.stochPeriod)
-        self.stochGroup.layout().addRow("K 기간:", self.stochKPeriod)
-        self.stochGroup.layout().addRow("D 기간:", self.stochDPeriod)
-        self.stochGroup.layout().addRow("과매수:", self.stochOverbought)
-        self.stochGroup.layout().addRow("과매도:", self.stochOversold)
-        self.stochGroup.hide()
-        self.backtestParamLayout.addWidget(self.stochGroup)
-
-        self.atrGroup = self.create_param_group('ATR')
-        self.atrPeriod = QSpinBox(); self.atrPeriod.setRange(1, 100); self.atrPeriod.setValue(14)
-        self.atrMultiplier = QDoubleSpinBox(); self.atrMultiplier.setRange(0.1, 5.0); self.atrMultiplier.setValue(2.0); self.atrMultiplier.setSingleStep(0.1)
-        self.atrGroup.layout().addRow("기간:", self.atrPeriod)
-        self.atrGroup.layout().addRow("승수:", self.atrMultiplier)
-        self.atrGroup.hide()
-        self.backtestParamLayout.addWidget(self.atrGroup)
-
-        # ATR 전략 파라미터 그룹
-        atr_group = self.create_param_group('ATR 전략 파라미터')
-        atr_group.setVisible(False)
-        
-        # ATR 기본 파라미터
-        atr_period_label = QLabel('ATR 기간:')
-        self.atrPeriod = QSpinBox()
-        self.atrPeriod.setRange(1, 100)
-        self.atrPeriod.setValue(14)
-        atr_group.layout().addRow(atr_period_label, self.atrPeriod)
-        
-        atr_multiplier_label = QLabel('ATR 승수:')
-        self.atrMultiplier = QDoubleSpinBox()
-        self.atrMultiplier.setRange(0.1, 10.0)
-        self.atrMultiplier.setValue(2.0)
-        self.atrMultiplier.setSingleStep(0.1)
-        atr_group.layout().addRow(atr_multiplier_label, self.atrMultiplier)
-        
-        # 추세 필터 파라미터
-        trend_period_label = QLabel('추세 기간:')
-        self.trendPeriod = QSpinBox()
-        self.trendPeriod.setRange(1, 100)
-        self.trendPeriod.setValue(20)
-        atr_group.layout().addRow(trend_period_label, self.trendPeriod)
-        
-        # 스탑로스 파라미터
-        stop_loss_label = QLabel('스탑로스 승수:')
-        self.stopLossMultiplier = QDoubleSpinBox()
-        self.stopLossMultiplier.setRange(0.1, 10.0)
-        self.stopLossMultiplier.setValue(1.5)
-        self.stopLossMultiplier.setSingleStep(0.1)
-        atr_group.layout().addRow(stop_loss_label, self.stopLossMultiplier)
-        
-        # 포지션 사이징 파라미터
-        position_size_label = QLabel('포지션 사이징 승수:')
-        self.positionSizeMultiplier = QDoubleSpinBox()
-        self.positionSizeMultiplier.setRange(0.1, 10.0)
-        self.positionSizeMultiplier.setValue(1.0)
-        self.positionSizeMultiplier.setSingleStep(0.1)
-        atr_group.layout().addRow(position_size_label, self.positionSizeMultiplier)
-        
-        self.param_groups['ATR 기반 변동성 돌파'] = atr_group
-        self.backtestParamLayout.addWidget(atr_group)
+        # UI에 이미 존재하는 파라미터 그룹/위젯을 findChild로 연결
+        self.feeGroup = self.findChild(QGroupBox, 'feeGroup')
+        self.feeRateSpinBox = self.findChild(QDoubleSpinBox, 'feeRateSpinBox')
+        self.rsiGroup = self.findChild(QGroupBox, 'rsiGroup')
+        self.rsiPeriod = self.findChild(QSpinBox, 'rsiPeriod')
+        self.rsiOverbought = self.findChild(QSpinBox, 'rsiOverbought')
+        self.rsiOversold = self.findChild(QSpinBox, 'rsiOversold')
+        self.bbGroup = self.findChild(QGroupBox, 'bbGroup')
+        self.bbPeriod = self.findChild(QSpinBox, 'bbPeriod')
+        self.bbStd = self.findChild(QDoubleSpinBox, 'bbStd')
+        self.macdGroup = self.findChild(QGroupBox, 'macdGroup')
+        self.macdFastPeriod = self.findChild(QSpinBox, 'macdFastPeriod')
+        self.macdSlowPeriod = self.findChild(QSpinBox, 'macdSlowPeriod')
+        self.macdSignalPeriod = self.findChild(QSpinBox, 'macdSignalPeriod')
+        self.maGroup = self.findChild(QGroupBox, 'maGroup')
+        self.maShortPeriod = self.findChild(QSpinBox, 'maShortPeriod')
+        self.maLongPeriod = self.findChild(QSpinBox, 'maLongPeriod')
+        self.stochGroup = self.findChild(QGroupBox, 'stochGroup')
+        self.stochPeriod = self.findChild(QSpinBox, 'stochPeriod')
+        self.stochKPeriod = self.findChild(QSpinBox, 'stochKPeriod')
+        self.stochDPeriod = self.findChild(QSpinBox, 'stochDPeriod')
+        self.stochOverbought = self.findChild(QSpinBox, 'stochOverbought')
+        self.stochOversold = self.findChild(QSpinBox, 'stochOversold')
+        self.atrGroup = self.findChild(QGroupBox, 'atrGroup')
+        self.atrPeriod = self.findChild(QSpinBox, 'atrPeriod')
+        self.atrMultiplier = self.findChild(QDoubleSpinBox, 'atrMultiplier')
+        self.trendPeriod = self.findChild(QSpinBox, 'trendPeriod')
+        self.stopLossMultiplier = self.findChild(QDoubleSpinBox, 'stopLossMultiplier')
+        self.positionSizeMultiplier = self.findChild(QDoubleSpinBox, 'positionSizeMultiplier')
+        self.volumeProfileGroup = self.findChild(QGroupBox, 'volumeProfileGroup')
+        self.volumeThreshold = self.findChild(QSpinBox, 'volumeThreshold')
+        self.mlGroup = self.findChild(QGroupBox, 'mlGroup')
+        self.predictionPeriod = self.findChild(QSpinBox, 'predictionPeriod')
+        self.trainingPeriod = self.findChild(QSpinBox, 'trainingPeriod')
 
     def setup_sim_param_groups(self):
         # 시뮬레이션 탭 전용 그룹만 생성 및 addWidget
@@ -1699,6 +1837,8 @@ MDD: {mdd:.2f}%
 
     def backtest_rsi(self, period, overbought, oversold, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = 'RSI'
+            self.last_backtest_params = {'period': period, 'overbought': overbought, 'oversold': oversold}
             # 데이터베이스에서 데이터 로드
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
@@ -1731,6 +1871,8 @@ MDD: {mdd:.2f}%
 
     def backtest_bollinger_bands(self, period, std, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = '볼린저밴드'
+            self.last_backtest_params = {'period': period, 'std': std}
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
             table_name = self.get_table_name(self.backtestCoinCombo.currentText(), interval)
@@ -1761,6 +1903,8 @@ MDD: {mdd:.2f}%
 
     def backtest_macd(self, fast_period, slow_period, signal_period, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = 'MACD'
+            self.last_backtest_params = {'fast_period': fast_period, 'slow_period': slow_period, 'signal_period': signal_period}
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
             table_name = self.get_table_name(self.backtestCoinCombo.currentText(), interval)
@@ -1791,6 +1935,8 @@ MDD: {mdd:.2f}%
 
     def backtest_moving_averages(self, short_period, long_period, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = '이동평균선 교차'
+            self.last_backtest_params = {'short_period': short_period, 'long_period': long_period}
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
             table_name = self.get_table_name(self.backtestCoinCombo.currentText(), interval)
@@ -1821,6 +1967,8 @@ MDD: {mdd:.2f}%
 
     def backtest_stochastic(self, period, k_period, d_period, overbought, oversold, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = '스토캐스틱'
+            self.last_backtest_params = {'period': period, 'k_period': k_period, 'd_period': d_period, 'overbought': overbought, 'oversold': oversold}
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
             table_name = self.get_table_name(self.backtestCoinCombo.currentText(), interval)
@@ -1851,6 +1999,8 @@ MDD: {mdd:.2f}%
 
     def backtest_atr(self, period, multiplier, start_date, end_date, interval, initial_capital, fee_rate):
         try:
+            self.last_backtest_strategy = 'ATR 기반 변동성 돌파'
+            self.last_backtest_params = {'period': period, 'multiplier': multiplier}
             conn = sqlite3.connect('ohlcv.db')
             cursor = conn.cursor()
             table_name = self.get_table_name(self.backtestCoinCombo.currentText(), interval)
@@ -2649,6 +2799,9 @@ MDD: {mdd:.2f}%
                         signals.append(0)
                 df_copy['signal'] = signals
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                # 거래가 2회 미만이면 무효
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             elif strategy == 'RSI':
                 rsi_period = trial.suggest_int('rsi_period', 5, 30)
@@ -2660,6 +2813,9 @@ MDD: {mdd:.2f}%
                 df_copy.loc[rsi < oversold, 'signal'] = 1
                 df_copy.loc[rsi > overbought, 'signal'] = -1
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                # 거래가 2회 미만이면 무효
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             elif strategy == '볼린저밴드':
                 bb_period = trial.suggest_int('bb_period', 5, 30)
@@ -2670,6 +2826,8 @@ MDD: {mdd:.2f}%
                 df_copy.loc[df_copy['close'] < lower, 'signal'] = 1
                 df_copy.loc[df_copy['close'] > upper, 'signal'] = -1
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             elif strategy == 'MACD':
                 fast_period = trial.suggest_int('fast_period', 5, 20)
@@ -2681,6 +2839,8 @@ MDD: {mdd:.2f}%
                 df_copy.loc[(macd > signal) & (macd.shift(1) <= signal.shift(1)), 'signal'] = 1
                 df_copy.loc[(macd < signal) & (macd.shift(1) >= signal.shift(1)), 'signal'] = -1
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             elif strategy == '이동평균선 교차':
                 short_period = trial.suggest_int('short_period', 5, 20)
@@ -2691,6 +2851,8 @@ MDD: {mdd:.2f}%
                 df_copy.loc[(short_ma > long_ma) & (short_ma.shift(1) <= long_ma.shift(1)), 'signal'] = 1
                 df_copy.loc[(short_ma < long_ma) & (short_ma.shift(1) >= long_ma.shift(1)), 'signal'] = -1
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             elif strategy == '스토캐스틱':
                 stoch_period = trial.suggest_int('stoch_period', 5, 20)
@@ -2704,13 +2866,77 @@ MDD: {mdd:.2f}%
                 df_copy.loc[(k < oversold) & (d < oversold), 'signal'] = 1
                 df_copy.loc[(k > overbought) & (d > overbought), 'signal'] = -1
                 performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
+                sharpe = performance.get('sharpe_ratio', 0.0)
+            elif strategy == '거래량 프로파일':
+                num_bins = trial.suggest_int('num_bins', 10, 30)
+                threshold = trial.suggest_float('threshold', 0.1, 0.3)
+                df_copy = df.copy()
+                bins, volume_profile = self.calculate_volume_profile(df_copy, num_bins)
+                volume_threshold = np.percentile(volume_profile, 100 * (1 - threshold))
+                signals = []
+                for i in range(len(df_copy)):
+                    price = df_copy['close'].iloc[i]
+                    bin_idx = np.digitize(price, bins) - 1
+                    if bin_idx < 0 or bin_idx >= len(volume_profile):
+                        signals.append(0)
+                        continue
+                    if volume_profile[bin_idx] >= volume_threshold:
+                        signals.append(1)
+                    else:
+                        signals.append(-1)
+                df_copy['signal'] = signals
+                performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
+                sharpe = performance.get('sharpe_ratio', 0.0)
+            elif strategy == '머신러닝':
+                n_estimators = trial.suggest_int('n_estimators', 50, 200)
+                max_depth = trial.suggest_int('max_depth', 3, 10)
+                random_state = 42
+                df_copy = df.copy()
+                from sklearn.ensemble import RandomForestClassifier
+                from sklearn.preprocessing import StandardScaler
+                df_copy['returns'] = df_copy['close'].pct_change()
+                df_copy['volume_change'] = df_copy['volume'].pct_change()
+                df_copy['rsi'] = self.calculate_rsi(df_copy['close'], 14)
+                df_copy['macd'], _ = self.calculate_macd(df_copy['close'], 12, 26, 9)
+                df_copy['bb_upper'], df_copy['bb_middle'], df_copy['bb_lower'] = self.calculate_bollinger_bands(df_copy['close'], 20, 2)
+                df_copy['target'] = (df_copy['close'].shift(-1) > df_copy['close']).astype(int)
+                features = ['returns', 'volume_change', 'rsi', 'macd', 'bb_upper', 'bb_middle', 'bb_lower']
+                X = df_copy[features].dropna()
+                y = df_copy['target'].dropna()
+                scaler = StandardScaler()
+                X_scaled = scaler.fit_transform(X)
+                model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=random_state)
+                model.fit(X_scaled[:-1], y[:-1])
+                signals = []
+                for i in range(30, len(df_copy)):
+                    current_data = df_copy.iloc[:i+1]
+                    if len(current_data) < 30:
+                        signals.append(0)
+                        continue
+                    X_pred = current_data[features].iloc[[-1]].values
+                    X_pred_scaled = scaler.transform(X_pred)
+                    prediction = model.predict_proba(X_pred_scaled)[0]
+                    if prediction[1] > 0.7:
+                        signals.append(1)
+                    elif prediction[0] > 0.7:
+                        signals.append(-1)
+                    else:
+                        signals.append(0)
+                df_copy['signal'] = [0]*30 + signals  # 앞 30개는 신호 없음
+                performance = self.calculate_backtest_results_with_fee(df_copy, fee_rate=self.feeRateSpinBox.value(), show_ui=False)
+                if performance.get('total_trades', 0) < 2:
+                    return -9999
                 sharpe = performance.get('sharpe_ratio', 0.0)
             else:
                 sharpe = 0.0
             if sharpe > best_trial['sharpe_ratio']:
                 best_trial['sharpe_ratio'] = sharpe
                 best_trial['params'] = trial.params.copy()
-            self.backtestStatus.append(f"{trial_num}/{n_trials}: 샤프비율 {sharpe:.4f} (파라미터: {trial.params})")
+            self.backtestStatus.append(f"{trial_num}/{n_trials}: 샤프비율 {sharpe:.4f} (파라미터: {trial.params}, 거래수: {performance.get('total_trades', 0)})")
             return sharpe
         study = optuna.create_study(direction='maximize')
         study.optimize(objective, n_trials=n_trials)
@@ -2885,21 +3111,38 @@ MDD: {mdd:.2f}%
 
     # --- 파라미터 그룹 표시/숨김 함수 분리 ---
     def update_backtest_param_groups_visibility(self, strategy):
-        groups = [self.rsiGroup, self.bbGroup, self.macdGroup, self.maGroup, self.stochGroup, self.atrGroup]
-        for group in groups:
-            group.hide()
+        # 모든 파라미터 그룹 리스트
+        all_groups = [
+            self.rsiGroup, self.bbGroup, self.macdGroup, self.maGroup,
+            self.stochGroup, self.atrGroup
+        ]
+        if hasattr(self, 'volumeProfileGroup'):
+            all_groups.append(self.volumeProfileGroup)
+        if hasattr(self, 'mlGroup'):
+            all_groups.append(self.mlGroup)
+        # 현재 레이아웃에서 모든 그룹 제거 (빈 공간 방지)
+        for group in all_groups:
+            group.setParent(None)
+        # 선택된 전략에 맞는 그룹만 다시 레이아웃에 추가
+        group_to_show = None
         if strategy == "RSI":
-            self.rsiGroup.show()
+            group_to_show = self.rsiGroup
         elif strategy == "볼린저밴드":
-            self.bbGroup.show()
+            group_to_show = self.bbGroup
         elif strategy == "MACD":
-            self.macdGroup.show()
+            group_to_show = self.macdGroup
         elif strategy == "이동평균선 교차":
-            self.maGroup.show()
+            group_to_show = self.maGroup
         elif strategy == "스토캐스틱":
-            self.stochGroup.show()
+            group_to_show = self.stochGroup
         elif strategy == "ATR 기반 변동성 돌파":
-            self.atrGroup.show()
+            group_to_show = self.atrGroup
+        elif strategy == "거래량 프로파일" and hasattr(self, 'volumeProfileGroup'):
+            group_to_show = self.volumeProfileGroup
+        elif strategy == "머신러닝" and hasattr(self, 'mlGroup'):
+            group_to_show = self.mlGroup
+        if group_to_show is not None:
+            self.backtestParamLayout.addWidget(group_to_show)
 
     def update_sim_param_groups_visibility(self, strategy):
         groups = [self.simRsiGroup, self.simBbGroup, self.simMacdGroup, self.simMaGroup, self.simStochGroup, self.simAtrGroup]
@@ -2956,95 +3199,219 @@ MDD: {mdd:.2f}%
     # 시뮬레이션 탭에서는 self.simRsiPeriod.value() 등 사용
     # 자동매매 탭에서는 self.tradeRsiPeriod.value() 등 사용
 
-    def backtest_volume_profile(self, num_bins, start_date, end_date, interval, initial_capital, fee_rate):
-        """거래량 프로파일 전략 백테스트"""
+    def backtest_volume_profile(self, num_bins, threshold, start_date, end_date, interval, initial_capital, fee_rate):
         try:
-            df = self._fetch_historical_data(start_date, end_date, interval)
+            self.last_backtest_strategy = '거래량 프로파일'
+            self.last_backtest_params = {'num_bins': num_bins, 'threshold': threshold}
+            engine = BacktestEngine(fee_rate=fee_rate)
+            df = engine._fetch_historical_data(start_date, end_date, interval)
             if df is None or len(df) < 30:
                 return None
-                
             # 거래량 프로파일 계산
             bins, volume_profile = self.calculate_volume_profile(df, num_bins)
-            
-            # 매매 신호 생성
-            trades = []
-            position = None
-            entry_price = 0
-            entry_time = None
-            
-            for i in range(30, len(df)):
-                current_data = df.iloc[:i+1]
-                signal = self.generate_volume_signal(current_data['close'].iloc[-1], current_data['volume'].iloc[-1], current_data)
-                
-                if signal == 'buy' and position is None:
-                    position = 'long'
-                    entry_price = df['close'].iloc[i]
-                    entry_time = df.index[i]
-                elif signal == 'sell' and position == 'long':
-                    exit_price = df['close'].iloc[i]
-                    profit = (exit_price - entry_price) * (initial_capital / entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, entry_price)  # 매수 수수료
-                    profit -= self.calculate_fee(initial_capital / entry_price, exit_price)   # 매도 수수료
-                    
-                    trades.append({
-                        'date': entry_time,
-                        'type': 'buy',
-                        'price': entry_price,
-                        'exit_date': df.index[i],
-                        'exit_price': exit_price,
-                        'profit': profit,
-                        'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
-                    })
-                    
-                    position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
+            volume_threshold = np.percentile(volume_profile, 100 * (1 - threshold))
+            # --- 전략 엔진으로 백테스트 실행 ---
+            result = engine.backtest_volume_profile(
+                num_bins, start_date, end_date, interval, initial_capital, fee_rate
+            )
+            self.handle_backtest_results(df, result, initial_capital)
+            return result
         except Exception as e:
             print(f"거래량 프로파일 백테스팅 오류: {str(e)}")
             return None
-            
-    def backtest_ml(self, n_estimators, random_state, start_date, end_date, interval, initial_capital, fee_rate):
-        """머신러닝 전략 백테스트"""
+
+    def backtest_ml(self, n_estimators, max_depth, random_state, start_date, end_date, interval, initial_capital, fee_rate):
         try:
-            df = self._fetch_historical_data(start_date, end_date, interval)
+            self.last_backtest_strategy = '머신러닝'
+            self.last_backtest_params = {'n_estimators': n_estimators, 'max_depth': max_depth, 'random_state': random_state}
+            engine = BacktestEngine(fee_rate=fee_rate)
+            df = engine._fetch_historical_data(start_date, end_date, interval)
             if df is None or len(df) < 30:
                 return None
-                
-            # 머신러닝 모델 학습 및 예측
-            trades = []
-            position = None
-            entry_price = 0
-            entry_time = None
-            
-            for i in range(30, len(df)):
-                current_data = df.iloc[:i+1]
-                signal = self.generate_ml_signal(current_data['close'].iloc[-1], current_data)
-                
-                if signal == 'buy' and position is None:
-                    position = 'long'
-                    entry_price = df['close'].iloc[i]
-                    entry_time = df.index[i]
-                elif signal == 'sell' and position == 'long':
-                    exit_price = df['close'].iloc[i]
-                    profit = (exit_price - entry_price) * (initial_capital / entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, entry_price)  # 매수 수수료
-                    profit -= self.calculate_fee(initial_capital / entry_price, exit_price)   # 매도 수수료
-                    
-                    trades.append({
-                        'date': entry_time,
-                        'type': 'buy',
-                        'price': entry_price,
-                        'exit_date': df.index[i],
-                        'exit_price': exit_price,
-                        'profit': profit,
-                        'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
-                    })
-                    
-                    position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
+            # --- 전략 엔진으로 백테스트 실행 ---
+            result = engine.backtest_ml(
+                n_estimators, random_state, start_date, end_date, interval, initial_capital, fee_rate
+            )
+            self.handle_backtest_results(df, result, initial_capital)
+            return result
         except Exception as e:
             print(f"머신러닝 백테스팅 오류: {str(e)}")
             return None
+
+    def handle_backtest_results(self, df, result, initial_capital):
+        """백테스트 결과 처리"""
+        try:
+            if result is None:
+                return
+                
+            # 현재 시간
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 전략 이름과 파라미터 가져오기
+            strategy = self.strategyCombo.currentText()
+            params = {}
+            if strategy == 'RSI':
+                params = {
+                    'period': self.rsiPeriod.value(),
+                    'overbought': self.rsiOverbought.value(),
+                    'oversold': self.rsiOversold.value()
+                }
+            elif strategy == '볼린저밴드':
+                params = {
+                    'period': self.bbPeriod.value(),
+                    'std': self.bbStd.value()
+                }
+            elif strategy == 'MACD':
+                params = {
+                    'fast_period': self.macdFastPeriod.value(),
+                    'slow_period': self.macdSlowPeriod.value(),
+                    'signal_period': self.macdSignalPeriod.value()
+                }
+            elif strategy == '이동평균선 교차':
+                params = {
+                    'short_period': self.maShortPeriod.value(),
+                    'long_period': self.maLongPeriod.value()
+                }
+            elif strategy == '스토캐스틱':
+                params = {
+                    'period': self.stochPeriod.value(),
+                    'k_period': self.stochKPeriod.value(),
+                    'd_period': self.stochDPeriod.value(),
+                    'overbought': self.stochOverbought.value(),
+                    'oversold': self.stochOversold.value()
+                }
+            elif strategy == 'ATR 기반 변동성 돌파':
+                params = {
+                    'period': self.atrPeriod.value(),
+                    'multiplier': self.atrMultiplier.value(),
+                    'trend_period': self.atrTrendPeriod.value(),
+                    'stop_loss_multiplier': self.atrStopLossMultiplier.value(),
+                    'position_size_multiplier': self.atrPositionSizeMultiplier.value()
+                }
+            elif strategy == '거래량 프로파일':
+                params = {
+                    'num_bins': self.volumeProfileBins.value()
+                }
+            elif strategy == '머신러닝':
+                params = {
+                    'n_estimators': self.mlNEstimators.value(),
+                    'max_depth': self.mlMaxDepth.value(),
+                    'random_state': self.mlRandomState.value()
+                }
+            
+            # 파라미터를 문자열로 변환
+            params_str = json.dumps(params, ensure_ascii=False)
+            
+            # CSV에 결과 저장
+            with open('backtest_results_log.csv', 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    current_time,  # 실행 시간
+                    strategy,      # 전략 이름
+                    params_str,    # 파라미터
+                    initial_capital,  # 초기자본
+                    result['final_capital'],  # 최종자본
+                    result['profit_rate'],    # 수익률
+                    result['win_rate'],       # 승률
+                    result['total_trades'],   # 총 거래 횟수
+                    df.index[0].date(),       # 시작일
+                    df.index[-1].date(),      # 종료일
+                    df.index[0],              # 시작 시간
+                    df.index[-1],             # 종료 시간
+                    self.backtestIntervalCombo.currentText(),  # 시간단위
+                    'BTC'                      # 코인
+                ])
+            
+            # 결과 표시
+            self.backtestStatus.append(f"=== 백테스트 결과 ===")
+            self.backtestStatus.append(f"전략: {strategy}")
+            self.backtestStatus.append(f"파라미터: {params_str}")
+            self.backtestStatus.append(f"초기자본: {initial_capital:,.0f}원")
+            self.backtestStatus.append(f"최종자본: {result['final_capital']:,.0f}원")
+            self.backtestStatus.append(f"수익률: {result['profit_rate']:.2f}%")
+            self.backtestStatus.append(f"승률: {result['win_rate']:.2f}%")
+            self.backtestStatus.append(f"총 거래 횟수: {result['total_trades']}회")
+            
+            # 차트 표시
+            self.plot_backtest_results(df, result['trades'], result['final_capital'], result['daily_balance'])
+            
+            # 거래 내역 표시
+            if result['trades']:
+                self.show_trade_log_dialog(result['trades'])
+                
+        except Exception as e:
+            self.backtestStatus.append(f"결과 처리 중 오류 발생: {str(e)}")
+            traceback.print_exc()
+
+    def update_strategy_description(self, strategy):
+        descriptions = {
+            'RSI': 'RSI(상대강도지수) 전략: 최근 일정 기간의 상승/하락 강도를 비교해 과매수(매도), 과매도(매수) 신호를 포착합니다.',
+            '볼린저밴드': '볼린저밴드 전략: 가격이 이동평균선 기준 상단/하단 밴드를 돌파할 때 반전 신호로 진입/청산합니다.',
+            'MACD': 'MACD 전략: 두 이동평균선의 차이와 신호선의 교차(골든/데드크로스)로 매수/매도 신호를 포착합니다.',
+            '이동평균선 교차': '이동평균선 교차 전략: 단기선이 장기선을 위로 돌파(골든크로스)하면 매수, 아래로 하락(데드크로스)하면 매도합니다.',
+            '스토캐스틱': '스토캐스틱 전략: 최근 고가/저가 대비 현재 가격 위치로 과매수/과매도 구간을 판단해 진입/청산합니다.',
+            'ATR 기반 변동성 돌파': 'ATR 변동성 돌파 전략: 최근 변동성(ATR)만큼 가격이 돌파하면 진입/청산하는 추세 추종 전략입니다.',
+            '거래량 프로파일': '거래량 프로파일 전략: 가격대별 거래량 분포를 분석해 거래량이 집중된 구간에서 반등/반락을 노립니다.',
+            '머신러닝': '머신러닝 전략: 과거 데이터(가격, 거래량, 지표 등)를 학습해 상승/하락 확률을 예측하여 매매합니다.'
+        }
+        desc = descriptions.get(strategy, '전략 설명이 없습니다.')
+        if self.strategyDescriptionLabel:
+            self.strategyDescriptionLabel.setText(desc)
+        print(f'[DEBUG] 전략 설명 라벨 업데이트: {strategy} → {desc}')
+
+    def setup_logging(self):
+        """로깅 설정"""
+        try:
+            # 로그 디렉토리 생성
+            log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # 로그 파일 경로 설정
+            log_file = os.path.join(log_dir, 'autotrade.log')
+            print(f"[DEBUG] 로그 파일 경로: {log_file}")  # 디버그용 출력
+            
+            # 로거 설정
+            self.logger = logging.getLogger('AutoTrade')
+            self.logger.setLevel(logging.DEBUG)
+            
+            # 파일 핸들러 설정
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            
+            # 포맷터 설정
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            
+            # 핸들러 추가
+            self.logger.addHandler(file_handler)
+            
+            # 초기 로그 메시지
+            self.logger.info('로깅 시스템 초기화 완료')
+            print("[DEBUG] 로깅 시스템 초기화 완료")  # 디버그용 출력
+            
+        except Exception as e:
+            print(f"[ERROR] 로깅 설정 중 오류 발생: {str(e)}")
+            # 로깅 설정 실패 시에도 기본 로거 생성
+            self.logger = logging.getLogger('AutoTrade')
+            self.logger.setLevel(logging.DEBUG)
+            # 콘솔 핸들러 추가
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+            self.logger.error(f'로깅 설정 실패: {str(e)}')
+
+    def update_backtest_param_page(self, strategy):
+        strategy_to_index = {
+            "RSI": 0,
+            "볼린저밴드": 1,
+            "MACD": 2,
+            "이동평균선 교차": 3,
+            "스토캐스틱": 4,
+            "ATR 기반 변동성 돌파": 5,
+            "거래량 프로파일": 6,
+            "머신러닝": 7
+        }
+        idx = strategy_to_index.get(strategy, 0)
+        self.backtestParamStackedWidget.setCurrentIndex(idx)
