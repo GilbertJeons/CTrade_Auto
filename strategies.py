@@ -35,11 +35,17 @@ class BaseStrategy:
 class RSIStrategy(BaseStrategy):
     """RSI 전략"""
     def generate_signal(self, df, period=14, overbought=70, oversold=30):
+        # print("[RSI] generate_signal df info:", df.shape, df.columns, type(df.index))
+        # print(df.tail(2))
         rsi = self.calculate_rsi(df['close'], period)
+        # print("[RSI] RSI values:", rsi.tail(2))
         if rsi.iloc[-1] < oversold:
+            # print(f"[RSI] BUY signal: rsi={rsi.iloc[-1]}, oversold={oversold}")
             return 'buy'
         elif rsi.iloc[-1] > overbought:
+            # print(f"[RSI] SELL signal: rsi={rsi.iloc[-1]}, overbought={overbought}")
             return 'sell'
+        # print(f"[RSI] NO signal: rsi={rsi.iloc[-1]}, overbought={overbought}, oversold={oversold}")
         return None
 
 class BollingerBandsStrategy(BaseStrategy):
@@ -208,6 +214,17 @@ class BacktestEngine:
         winning_trades = len([t for t in trades if t['profit'] > 0])
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
+        # 수수료 계산
+        total_fees = 0
+        for trade in trades:
+            if 'fee' in trade:
+                total_fees += trade['fee']
+            else:
+                # 수수료가 없는 경우 계산
+                amount = initial_capital / trade['price']
+                fee = self.calculate_fee(amount, trade['price'])
+                total_fees += fee
+        
         final_capital = initial_capital
         for trade in trades:
             final_capital += trade['profit']
@@ -234,6 +251,29 @@ class BacktestEngine:
             balance = capital + position * df['close'].iloc[i]
             daily_balance.append({'date': df.index[i], 'balance': balance})
         
+        # 수익 거래와 손실 거래 분석
+        winning_trades_list = [t for t in trades if t['profit'] > 0]
+        losing_trades_list = [t for t in trades if t['profit'] <= 0]
+        
+        avg_win = sum(t['profit'] for t in winning_trades_list) / len(winning_trades_list) if winning_trades_list else 0
+        avg_loss = sum(t['profit'] for t in losing_trades_list) / len(losing_trades_list) if losing_trades_list else 0
+        
+        # 연속 수익/손실 계산
+        max_consecutive_wins = 0
+        max_consecutive_losses = 0
+        current_consecutive_wins = 0
+        current_consecutive_losses = 0
+        
+        for trade in trades:
+            if trade['profit'] > 0:
+                current_consecutive_wins += 1
+                current_consecutive_losses = 0
+                max_consecutive_wins = max(max_consecutive_wins, current_consecutive_wins)
+            else:
+                current_consecutive_losses += 1
+                current_consecutive_wins = 0
+                max_consecutive_losses = max(max_consecutive_losses, current_consecutive_losses)
+        
         return {
             'total_trades': total_trades,
             'win_rate': win_rate,
@@ -241,29 +281,38 @@ class BacktestEngine:
             'final_capital': final_capital,
             'trades': trades,
             'daily_balance': daily_balance,
+            'total_fees': total_fees,
+            'fee_rate': (total_fees / initial_capital) * 100,
+            'net_profit': final_capital - initial_capital - total_fees,
+            'net_profit_rate': ((final_capital - initial_capital - total_fees) / initial_capital) * 100,
+            'avg_win': avg_win,
+            'avg_loss': avg_loss,
+            'profit_factor': abs(avg_win / avg_loss) if avg_loss != 0 else float('inf'),
+            'max_consecutive_wins': max_consecutive_wins,
+            'max_consecutive_losses': max_consecutive_losses
         }
         
     def backtest_strategy(self, strategy_name, params, df, interval, initial_capital):
         """전략별 백테스팅 실행"""
         try:
             if df is None or len(df) < 30:
+                print("[Backtest] 데이터 없음 또는 30개 미만")
                 return None
-                
             # 전략 객체 생성
             strategy = StrategyFactory.create_strategy(strategy_name)
             if strategy is None:
+                print("[Backtest] 전략 생성 실패")
                 return None
-                
             # 백테스팅 실행
             trades = []
             position = None
             entry_price = 0
             entry_time = None
-            
             for i in range(30, len(df)):
                 current_data = df.iloc[:i+1]
+                # print(f"[Backtest] {strategy_name} {i}/{len(df)} current_data index: {current_data.index[-2:]}")
                 signal = strategy.generate_signal(current_data, **params)
-                
+                # print(f"[Backtest] {strategy_name} {i} signal: {signal}")
                 if signal == 'buy' and position is None:
                     position = 'long'
                     entry_price = df['close'].iloc[i]
@@ -273,7 +322,6 @@ class BacktestEngine:
                     profit = (exit_price - entry_price) * (initial_capital / entry_price)
                     profit -= self.calculate_fee(initial_capital / entry_price, entry_price)  # 매수 수수료
                     profit -= self.calculate_fee(initial_capital / entry_price, exit_price)   # 매도 수수료
-                    
                     trades.append({
                         'date': entry_time,  # 진입 시간
                         'type': 'buy',       # 거래 유형
@@ -283,11 +331,25 @@ class BacktestEngine:
                         'profit': profit,    # 수익금
                         'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100  # 수익률
                     })
-                    
                     position = None
-                    
+            # 루프 끝난 뒤 포지션이 남아있으면 강제 청산
+            if position == 'long':
+                exit_price = df['close'].iloc[-1]
+                profit = (exit_price - entry_price) * (initial_capital / entry_price)
+                profit -= self.calculate_fee(initial_capital / entry_price, entry_price)
+                profit -= self.calculate_fee(initial_capital / entry_price, exit_price)
+                trades.append({
+                    'date': entry_time,
+                    'type': 'buy',
+                    'price': entry_price,
+                    'exit_date': df.index[-1],
+                    'exit_price': exit_price,
+                    'profit': profit,
+                    'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
+                })
+                print(f"[Backtest] 강제 청산: entry={entry_price}, exit={exit_price}, profit={profit}")
+            print(f"[Backtest] 총 거래 수: {len(trades)}")
             return self.calculate_backtest_results(df, trades, initial_capital)
-            
         except Exception as e:
             print(f"백테스팅 오류: {str(e)}")
             traceback.print_exc()
@@ -470,51 +532,51 @@ class BacktestEngine:
             traceback.print_exc()
             return None
 
-    def _fetch_historical_data(self, start_date, end_date, interval):
-        """과거 데이터 가져오기"""
-        try:
-            # interval 매핑
-            interval_map = {
-                "1분봉": "minute1",
-                "3분봉": "minute3",
-                "5분봉": "minute5",
-                "15분봉": "minute15",
-                "30분봉": "minute30",
-                "1시간봉": "minute60",
-                "4시간봉": "minute240",
-                "일봉": "day",
-                "주봉": "week",
-                "월봉": "month"
-            }
+    # def _fetch_historical_data(self, start_date, end_date, interval):
+    #     """과거 데이터 가져오기"""
+    #     try:
+    #         # interval 매핑
+    #         interval_map = {
+    #             "1분봉": "minute1",
+    #             "3분봉": "minute3",
+    #             "5분봉": "minute5",
+    #             "15분봉": "minute15",
+    #             "30분봉": "minute30",
+    #             "1시간봉": "minute60",
+    #             "4시간봉": "minute240",
+    #             "일봉": "day",
+    #             "주봉": "week",
+    #             "월봉": "month"
+    #         }
             
-            # interval 변환
-            upbit_interval = interval_map.get(interval, interval)
+    #         # interval 변환
+    #         upbit_interval = interval_map.get(interval, interval)
             
-            # 시작일과 종료일을 datetime으로 변환
-            start_datetime = datetime.combine(start_date, datetime.min.time())
-            end_datetime = datetime.combine(end_date, datetime.max.time())
+    #         # 시작일과 종료일을 datetime으로 변환
+    #         start_datetime = datetime.combine(start_date, datetime.min.time())
+    #         end_datetime = datetime.combine(end_date, datetime.max.time())
             
-            print(f"데이터 요청: {start_datetime} ~ {end_datetime}, interval={upbit_interval}")
+    #         print(f"데이터 요청: {start_datetime} ~ {end_datetime}, interval={upbit_interval}")
             
-            # 데이터 가져오기
-            df = pyupbit.get_ohlcv_from(
-                ticker="KRW-BTC",
-                interval=upbit_interval,
-                fromDatetime=start_datetime,
-                to=end_datetime
-            )
+    #         # 데이터 가져오기
+    #         df = pyupbit.get_ohlcv_from(
+    #             ticker="KRW-BTC",
+    #             interval=upbit_interval,
+    #             fromDatetime=start_datetime,
+    #             to=end_datetime
+    #         )
             
-            if df is None or df.empty:
-                print("데이터가 없습니다.")
-                return None
+    #         if df is None or df.empty:
+    #             print("데이터가 없습니다.")
+    #             return None
             
-            print(f"가져온 데이터: {len(df)}개")
-            return df
+    #         print(f"가져온 데이터: {len(df)}개")
+    #         return df
             
-        except Exception as e:
-            print(f"데이터 가져오기 오류: {str(e)}")
-            traceback.print_exc()
-            return None
+    #     except Exception as e:
+    #         print(f"데이터 가져오기 오류: {str(e)}")
+    #         traceback.print_exc()
+    #         return None
 
 class ATRStrategy(BaseStrategy):
     def __init__(self):
@@ -591,4 +653,104 @@ class ATRStrategy(BaseStrategy):
             
         except Exception as e:
             print(f"ATR 신호 생성 오류: {str(e)}")
+            return None
+
+class OptunaOptimizer:
+    """Optuna를 사용한 전략 최적화 클래스"""
+    def __init__(self, strategy, strategy_name, df, n_trials=100):
+        self.strategy = strategy
+        self.strategy_name = strategy_name
+        self.df = df
+        self.n_trials = n_trials
+        self.best_params = None
+        self.best_value = None
+        
+    def objective(self, trial):
+        """Optuna 최적화 목적 함수"""
+        try:
+            # 전략별 파라미터 정의
+            if isinstance(self.strategy, RSIStrategy):
+                params = {
+                    'period': trial.suggest_int('period', 5, 30),
+                    'overbought': trial.suggest_int('overbought', 60, 90),
+                    'oversold': trial.suggest_int('oversold', 10, 40)
+                }
+            elif isinstance(self.strategy, BollingerBandsStrategy):
+                params = {
+                    'period': trial.suggest_int('period', 10, 50),
+                    'std': trial.suggest_float('std', 1.0, 3.0)
+                }
+            elif isinstance(self.strategy, MACDStrategy):
+                params = {
+                    'fast_period': trial.suggest_int('fast_period', 5, 20),
+                    'slow_period': trial.suggest_int('slow_period', 20, 50),
+                    'signal_period': trial.suggest_int('signal_period', 5, 15)
+                }
+            elif isinstance(self.strategy, MovingAverageStrategy):
+                params = {
+                    'short_period': trial.suggest_int('short_period', 5, 20),
+                    'long_period': trial.suggest_int('long_period', 20, 50)
+                }
+            elif isinstance(self.strategy, StochasticStrategy):
+                params = {
+                    'period': trial.suggest_int('period', 5, 30),
+                    'k_period': trial.suggest_int('k_period', 1, 5),
+                    'd_period': trial.suggest_int('d_period', 1, 5),
+                    'overbought': trial.suggest_int('overbought', 70, 90),
+                    'oversold': trial.suggest_int('oversold', 10, 30)
+                }
+            elif isinstance(self.strategy, ATRStrategy):
+                params = {
+                    'period': trial.suggest_int('period', 5, 30),
+                    'multiplier': trial.suggest_float('multiplier', 1.0, 3.0),
+                    'trend_period': trial.suggest_int('trend_period', 10, 50),
+                    'stop_loss_multiplier': trial.suggest_float('stop_loss_multiplier', 1.0, 3.0),
+                    'position_size_multiplier': trial.suggest_float('position_size_multiplier', 0.5, 2.0)
+                }
+            else:
+                print('지원하지 않는 전략입니다.')
+                return 0.0
+                
+            # 백테스팅 실행
+            backtest_engine = BacktestEngine()
+            result = backtest_engine.backtest_strategy(
+                self.strategy_name,
+                params,
+                self.df,
+                '1분봉',
+                1000000  # 초기 자본금 100만원
+            )
+            
+            if result is None:
+                print(f"[Optuna][{self.strategy_name}] result is None for params: {params}")
+                return 0.0
+            if result.get('total_trades', 0) == 0:
+                print(f"[Optuna][{self.strategy_name}] 거래 없음. params: {params}")
+                return 0.0
+            print(f"[Optuna][{self.strategy_name}] params: {params}, profit_rate: {result['profit_rate']}, win_rate: {result['win_rate']}, total_trades: {result['total_trades']}")
+            # 최적화 목표: 수익률 * 승률
+            return result['profit_rate'] * (result['win_rate'] / 100)
+        except Exception as e:
+            print(f"최적화 오류: {str(e)}")
+            return 0.0
+            
+    def optimize(self):
+        """최적화 실행"""
+        try:
+            import optuna
+            
+            study = optuna.create_study(direction='maximize')
+            study.optimize(self.objective, n_trials=self.n_trials)
+            
+            self.best_params = study.best_params
+            self.best_value = study.best_value
+            
+            return {
+                'best_params': self.best_params,
+                'best_value': self.best_value,
+                'study': study
+            }
+            
+        except Exception as e:
+            print(f"최적화 실행 오류: {str(e)}")
             return None 
