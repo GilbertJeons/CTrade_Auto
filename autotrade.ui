@@ -386,33 +386,33 @@
               <item>
                <widget class="QLabel" name="feeLabel">
                 <property name="text">
-                 <string>수수료율:</string>
+                 <string>수수료율(%)</string>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QDoubleSpinBox" name="feeRateSpinBox">
                 <property name="minimum">
-                 <double>0.0001</double>
-                </property>
-                <property name="maximum">
                  <double>0.01</double>
                 </property>
+                <property name="maximum">
+                 <double>20.0</double>
+                </property>
                 <property name="singleStep">
-                 <double>0.0001</double>
+                 <double>0.005</double>
                 </property>
                 <property name="decimals">
-                 <number>4</number>
+                 <number>3</number>
                 </property>
                 <property name="value">
-                 <double>0.00025</double>
+                 <double>0.04</double>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QLabel" name="feeRangeLabel">
                 <property name="text">
-                 <string>(0.01% ~ 1%)</string>
+                 <string>(0.01% ~ 20%)</string>
                 </property>
                </widget>
               </item>
@@ -450,7 +450,23 @@
                   <item row="0" column="0"><widget class="QLabel" name="label_bb_period"><property name="text"><string>기간:</string></property></widget></item>
                   <item row="0" column="1"><widget class="QSpinBox" name="bbPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>20</number></property></widget></item>
                   <item row="1" column="0"><widget class="QLabel" name="label_bb_std"><property name="text"><string>표준편차:</string></property></widget></item>
-                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="bbStd"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>5.0</double></property><property name="value"><double>2.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="bbStd">
+                   <property name="minimum">
+                    <double>0.1</double>
+                   </property>
+                   <property name="maximum">
+                    <double>5.0</double>
+                   </property>
+                   <property name="value">
+                    <double>2.0</double>
+                   </property>
+                   <property name="singleStep">
+                    <double>0.1</double>
+                   </property>
+                   <property name="decimals">
+                    <number>3</number>
+                   </property>
+                  </widget></item>
                  </layout>
                 </widget>
                </item>
@@ -518,13 +534,61 @@
                   <item row="0" column="0"><widget class="QLabel" name="label_atr_period"><property name="text"><string>기간:</string></property></widget></item>
                   <item row="0" column="1"><widget class="QSpinBox" name="atrPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>14</number></property></widget></item>
                   <item row="1" column="0"><widget class="QLabel" name="label_atr_multiplier"><property name="text"><string>승수:</string></property></widget></item>
-                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="atrMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>5.0</double></property><property name="value"><double>2.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="1" column="1"><widget class="QDoubleSpinBox" name="atrMultiplier">
+                   <property name="minimum">
+                    <double>0.1</double>
+                   </property>
+                   <property name="maximum">
+                    <double>5.0</double>
+                   </property>
+                   <property name="value">
+                    <double>2.0</double>
+                   </property>
+                   <property name="singleStep">
+                    <double>0.1</double>
+                   </property>
+                   <property name="decimals">
+                    <number>3</number>
+                   </property>
+                  </widget></item>
                   <item row="2" column="0"><widget class="QLabel" name="label_trend_period"><property name="text"><string>추세 기간:</string></property></widget></item>
                   <item row="2" column="1"><widget class="QSpinBox" name="trendPeriod"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>20</number></property></widget></item>
                   <item row="3" column="0"><widget class="QLabel" name="label_stop_loss_multiplier"><property name="text"><string>스탑로스 승수:</string></property></widget></item>
-                  <item row="3" column="1"><widget class="QDoubleSpinBox" name="stopLossMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>10.0</double></property><property name="value"><double>1.5</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="3" column="1"><widget class="QDoubleSpinBox" name="stopLossMultiplier">
+                   <property name="minimum">
+                    <double>0.1</double>
+                   </property>
+                   <property name="maximum">
+                    <double>10.0</double>
+                   </property>
+                   <property name="value">
+                    <double>1.5</double>
+                   </property>
+                   <property name="singleStep">
+                    <double>0.1</double>
+                   </property>
+                   <property name="decimals">
+                    <number>3</number>
+                   </property>
+                  </widget></item>
                   <item row="4" column="0"><widget class="QLabel" name="label_position_size_multiplier"><property name="text"><string>포지션 사이징 승수:</string></property></widget></item>
-                  <item row="4" column="1"><widget class="QDoubleSpinBox" name="positionSizeMultiplier"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>10.0</double></property><property name="value"><double>1.0</double></property><property name="singleStep"><double>0.1</double></property></widget></item>
+                  <item row="4" column="1"><widget class="QDoubleSpinBox" name="positionSizeMultiplier">
+                   <property name="minimum">
+                    <double>0.1</double>
+                   </property>
+                   <property name="maximum">
+                    <double>10.0</double>
+                   </property>
+                   <property name="value">
+                    <double>1.0</double>
+                   </property>
+                   <property name="singleStep">
+                    <double>0.1</double>
+                   </property>
+                   <property name="decimals">
+                    <number>3</number>
+                   </property>
+                  </widget></item>
                  </layout>
                 </widget>
                </item>
@@ -538,6 +602,12 @@
                  <layout class="QFormLayout" name="formLayout_volume">
                   <item row="0" column="0"><widget class="QLabel" name="label_volume"><property name="text"><string>거래량 임계값:</string></property></widget></item>
                   <item row="0" column="1"><widget class="QSpinBox" name="volumeThreshold"><property name="minimum"><number>1</number></property><property name="maximum"><number>1000000</number></property><property name="value"><number>1000</number></property></widget></item>
+                  <item row="1" column="0"><widget class="QLabel" name="label_bins"><property name="text"><string>구간 개수:</string></property></widget></item>
+                  <item row="1" column="1"><widget class="QSpinBox" name="numBins"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>10</number></property></widget></item>
+                  <item row="2" column="0"><widget class="QLabel" name="label_zscore"><property name="text"><string>Z-Score 임계값:</string></property></widget></item>
+                  <item row="2" column="1"><widget class="QDoubleSpinBox" name="volumeZscoreThreshold"><property name="minimum"><double>0.1</double></property><property name="maximum"><double>10.0</double></property><property name="value"><double>2.0</double></property><property name="singleStep"><double>0.1</double></property><property name="decimals"><number>3</number></property></widget></item>
+                  <item row="3" column="0"><widget class="QLabel" name="label_window"><property name="text"><string>이동평균 윈도우:</string></property></widget></item>
+                  <item row="3" column="1"><widget class="QSpinBox" name="windowSize"><property name="minimum"><number>1</number></property><property name="maximum"><number>100</number></property><property name="value"><number>20</number></property></widget></item>
                  </layout>
                 </widget>
                </item>

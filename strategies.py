@@ -89,20 +89,20 @@ class VolumeProfileStrategy(BaseStrategy):
                 
         return bins, volume_profile
         
-    def generate_signal(self, df):
+    def generate_signal(self, df, num_bins=10, volume_threshold=1000, volume_zscore_threshold=2.0, window_size=20):
         try:
             vwap = self.calculate_vwap(df)
             current_vwap = vwap.iloc[-1]
             current_price = df['close'].iloc[-1]
             current_volume = df['volume'].iloc[-1]
             
-            volume_ma = df['volume'].rolling(window=20).mean()
-            volume_std = df['volume'].rolling(window=20).std()
+            volume_ma = df['volume'].rolling(window=window_size).mean()
+            volume_std = df['volume'].rolling(window=window_size).std()
             volume_zscore = (current_volume - volume_ma.iloc[-1]) / volume_std.iloc[-1]
             
-            if current_price < current_vwap and volume_zscore > 2:
+            if current_price < current_vwap and volume_zscore > volume_zscore_threshold and current_volume > volume_threshold:
                 return 'buy'
-            elif current_price > current_vwap and volume_zscore > 2:
+            elif current_price > current_vwap and volume_zscore > volume_zscore_threshold and current_volume > volume_threshold:
                 return 'sell'
                 
             return None
@@ -501,7 +501,7 @@ class BacktestEngine:
             
             for i in range(30, len(df)):
                 current_data = df.iloc[:i+1]
-                signal = strategy.generate_signal(current_data)
+                signal = strategy.generate_signal(current_data, **params)
                 
                 if signal == 'buy' and position is None:
                     position = 'long'
@@ -657,11 +657,12 @@ class ATRStrategy(BaseStrategy):
 
 class OptunaOptimizer:
     """Optuna를 사용한 전략 최적화 클래스"""
-    def __init__(self, strategy, strategy_name, df, n_trials=100):
+    def __init__(self, strategy, strategy_name, df, n_trials=100, fee_rate=0.0005):
         self.strategy = strategy
         self.strategy_name = strategy_name
         self.df = df
         self.n_trials = n_trials
+        self.fee_rate = fee_rate
         self.best_params = None
         self.best_value = None
         
@@ -681,10 +682,12 @@ class OptunaOptimizer:
                     'std': trial.suggest_float('std', 1.0, 3.0)
                 }
             elif isinstance(self.strategy, MACDStrategy):
+                fast_period = trial.suggest_int('fast_period', 8, 20)
+                slow_period = trial.suggest_int('slow_period', fast_period + 4, 50)
                 params = {
-                    'fast_period': trial.suggest_int('fast_period', 5, 20),
-                    'slow_period': trial.suggest_int('slow_period', 20, 50),
-                    'signal_period': trial.suggest_int('signal_period', 5, 15)
+                    'fast_period': fast_period,
+                    'slow_period': slow_period,
+                    'signal_period': trial.suggest_int('signal_period', 9, 20)
                 }
             elif isinstance(self.strategy, MovingAverageStrategy):
                 params = {
@@ -707,12 +710,18 @@ class OptunaOptimizer:
                     'stop_loss_multiplier': trial.suggest_float('stop_loss_multiplier', 1.0, 3.0),
                     'position_size_multiplier': trial.suggest_float('position_size_multiplier', 0.5, 2.0)
                 }
+            elif isinstance(self.strategy, VolumeProfileStrategy):
+                params = {
+                    'num_bins': trial.suggest_int('num_bins', 5, 30),
+                    'volume_threshold': trial.suggest_int('volume_threshold', 100, 5000),
+                    'volume_zscore_threshold': trial.suggest_float('volume_zscore_threshold', 1.5, 3.0),
+                    'window_size': trial.suggest_int('window_size', 10, 50)
+                }
             else:
                 print('지원하지 않는 전략입니다.')
                 return 0.0
-                
             # 백테스팅 실행
-            backtest_engine = BacktestEngine()
+            backtest_engine = BacktestEngine(fee_rate=self.fee_rate)
             result = backtest_engine.backtest_strategy(
                 self.strategy_name,
                 params,
@@ -720,7 +729,6 @@ class OptunaOptimizer:
                 '1분봉',
                 1000000  # 초기 자본금 100만원
             )
-            
             if result is None:
                 print(f"[Optuna][{self.strategy_name}] result is None for params: {params}")
                 return 0.0
@@ -728,7 +736,6 @@ class OptunaOptimizer:
                 print(f"[Optuna][{self.strategy_name}] 거래 없음. params: {params}")
                 return 0.0
             print(f"[Optuna][{self.strategy_name}] params: {params}, profit_rate: {result['profit_rate']}, win_rate: {result['win_rate']}, total_trades: {result['total_trades']}")
-            # 최적화 목표: 수익률 * 승률
             return result['profit_rate'] * (result['win_rate'] / 100)
         except Exception as e:
             print(f"최적화 오류: {str(e)}")
