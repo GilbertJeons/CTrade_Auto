@@ -113,7 +113,7 @@ class VolumeProfileStrategy(BaseStrategy):
 
 class MLStrategy(BaseStrategy):
     """머신러닝 전략"""
-    def generate_signal(self, df):
+    def generate_signal(self, df, prediction_period=5, training_period=100):
         try:
             df = df.copy()  # SettingWithCopyWarning 방지
             # 특성 생성

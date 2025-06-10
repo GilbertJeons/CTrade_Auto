@@ -34,7 +34,7 @@ plt.rcParams['font.family'] = 'Malgun Gothic'
 class AutoTradeWindow(QDialog):
     # 시그널 정의
     update_sim_status = pyqtSignal(str)
-    show_sim_chart_signal = pyqtSignal(list, list, list)
+    show_sim_chart_signal = pyqtSignal(list, list, list, list)
     show_trade_log_signal = pyqtSignal(list)
     update_data_result = pyqtSignal(str)  # 데이터 수집 결과 업데이트를 위한 시그널 추가
     
@@ -75,10 +75,10 @@ class AutoTradeWindow(QDialog):
         self.data_collection_thread = None
         self.data_collection_stop_event = threading.Event()
         
-        # 실시간 데이터 저장용 변수
-        self.realtime_data = []
-        self.realtime_timer = QTimer()
-        self.realtime_timer.timeout.connect(self.fetch_realtime_data)
+        # # 실시간 데이터 저장용 변수
+        # self.realtime_data = []
+        # self.realtime_timer = QTimer()
+        # # self.realtime_timer.timeout.connect(self.fetch_realtime_data)
         
         # API 연결 상태
         self.is_connected = False
@@ -104,10 +104,10 @@ class AutoTradeWindow(QDialog):
         self.realtime_volume_data = []
         self.realtime_ycenter = None  # 기준값 변수 추가
         
-        # 실시간 차트 상태 변수
-        self.realtime_running = False
-        self.realtime_timer = QTimer()
-        self.realtime_timer.timeout.connect(self.fetch_realtime_data)
+        # # 실시간 차트 상태 변수
+        # self.realtime_running = False
+        # self.realtime_timer = QTimer()
+        # self.realtime_timer.timeout.connect(self.fetch_realtime_data)
         
         # 전략 파라미터 그룹
         self.param_groups = {}
@@ -560,7 +560,10 @@ class AutoTradeWindow(QDialog):
         self.stopLossMultiplier = self.findChild(QDoubleSpinBox, 'stopLossMultiplier')
         self.positionSizeMultiplier = self.findChild(QDoubleSpinBox, 'positionSizeMultiplier')
         self.volumeProfileGroup = self.findChild(QGroupBox, 'volumeProfileGroup')
+        self.numBins = self.findChild(QSpinBox, 'numBins')
         self.volumeThreshold = self.findChild(QSpinBox, 'volumeThreshold')
+        self.volumeZscoreThreshold = self.findChild(QDoubleSpinBox, 'volumeZscoreThreshold')
+        self.windowSize = self.findChild(QSpinBox, 'windowSize')
         self.mlGroup = self.findChild(QGroupBox, 'mlGroup')
         self.predictionPeriod = self.findChild(QSpinBox, 'predictionPeriod')
         self.trainingPeriod = self.findChild(QSpinBox, 'trainingPeriod')
@@ -640,6 +643,35 @@ class AutoTradeWindow(QDialog):
         self.simAtrGroup.hide()
         self.simParamLayout.addWidget(self.simAtrGroup)
 
+        # ATR 기반 변동성 돌파 추가 파라미터
+        self.simTrendPeriod = QSpinBox(); self.simTrendPeriod.setRange(1, 100); self.simTrendPeriod.setValue(14)
+        self.simStopLossMultiplier = QDoubleSpinBox(); self.simStopLossMultiplier.setRange(0.1, 10.0); self.simStopLossMultiplier.setValue(2.0); self.simStopLossMultiplier.setSingleStep(0.1)
+        self.simPositionSizeMultiplier = QDoubleSpinBox(); self.simPositionSizeMultiplier.setRange(0.1, 10.0); self.simPositionSizeMultiplier.setValue(1.0); self.simPositionSizeMultiplier.setSingleStep(0.1)
+        self.simAtrGroup.layout().addRow("추세 기간:", self.simTrendPeriod)
+        self.simAtrGroup.layout().addRow("스탑로스 승수:", self.simStopLossMultiplier)
+        self.simAtrGroup.layout().addRow("포지션 크기 승수:", self.simPositionSizeMultiplier)
+
+        # 거래량 프로파일 파라미터
+        self.simVolumeProfileGroup = self.create_param_group('거래량 프로파일')
+        self.simNumBins = QSpinBox(); self.simNumBins.setRange(1, 100); self.simNumBins.setValue(10)
+        self.simVolumeThreshold = QSpinBox(); self.simVolumeThreshold.setRange(1, 1000000); self.simVolumeThreshold.setValue(10000)
+        self.simVolumeZscoreThreshold = QDoubleSpinBox(); self.simVolumeZscoreThreshold.setRange(0.0, 10.0); self.simVolumeZscoreThreshold.setValue(2.0); self.simVolumeZscoreThreshold.setSingleStep(0.1)
+        self.simWindowSize = QSpinBox(); self.simWindowSize.setRange(1, 1000); self.simWindowSize.setValue(100)
+        self.simVolumeProfileGroup.layout().addRow("빈 개수:", self.simNumBins)
+        self.simVolumeProfileGroup.layout().addRow("거래량 임계값:", self.simVolumeThreshold)
+        self.simVolumeProfileGroup.layout().addRow("Z-score 임계값:", self.simVolumeZscoreThreshold)
+        self.simVolumeProfileGroup.layout().addRow("윈도우 크기:", self.simWindowSize)
+        self.simVolumeProfileGroup.hide()
+        self.simParamLayout.addWidget(self.simVolumeProfileGroup)
+
+        # 머신러닝 파라미터
+        self.simMLGroup = self.create_param_group('머신러닝')
+        self.simPredictionPeriod = QSpinBox(); self.simPredictionPeriod.setRange(1, 100); self.simPredictionPeriod.setValue(5)
+        self.simTrainingPeriod = QSpinBox(); self.simTrainingPeriod.setRange(1, 1000); self.simTrainingPeriod.setValue(100)
+        self.simMLGroup.layout().addRow("예측 기간:", self.simPredictionPeriod)
+        self.simMLGroup.layout().addRow("학습 기간:", self.simTrainingPeriod)
+        self.simMLGroup.hide()
+        self.simParamLayout.addWidget(self.simMLGroup)
 
     def setup_trade_param_groups(self):
         # 자동매매 탭 전용 그룹만 생성 및 addWidget
@@ -716,6 +748,36 @@ class AutoTradeWindow(QDialog):
         self.tradeAtrGroup.hide()
         self.tradeParamLayout.addWidget(self.tradeAtrGroup)
 
+        # ATR 기반 변동성 돌파 추가 파라미터
+        self.tradeTrendPeriod = QSpinBox(); self.tradeTrendPeriod.setRange(1, 100); self.tradeTrendPeriod.setValue(14)
+        self.tradeStopLossMultiplier = QDoubleSpinBox(); self.tradeStopLossMultiplier.setRange(0.1, 10.0); self.tradeStopLossMultiplier.setValue(2.0); self.tradeStopLossMultiplier.setSingleStep(0.1)
+        self.tradePositionSizeMultiplier = QDoubleSpinBox(); self.tradePositionSizeMultiplier.setRange(0.1, 10.0); self.tradePositionSizeMultiplier.setValue(1.0); self.tradePositionSizeMultiplier.setSingleStep(0.1)
+        self.tradeAtrGroup.layout().addRow("추세 기간:", self.tradeTrendPeriod)
+        self.tradeAtrGroup.layout().addRow("스탑로스 승수:", self.tradeStopLossMultiplier)
+        self.tradeAtrGroup.layout().addRow("포지션 크기 승수:", self.tradePositionSizeMultiplier)
+
+        # 거래량 프로파일 파라미터
+        self.tradeVolumeProfileGroup = self.create_param_group('거래량 프로파일')
+        self.tradeNumBins = QSpinBox(); self.tradeNumBins.setRange(1, 100); self.tradeNumBins.setValue(10)
+        self.tradeVolumeThreshold = QSpinBox(); self.tradeVolumeThreshold.setRange(1, 1000000); self.tradeVolumeThreshold.setValue(10000)
+        self.tradeVolumeZscoreThreshold = QDoubleSpinBox(); self.tradeVolumeZscoreThreshold.setRange(0.0, 10.0); self.tradeVolumeZscoreThreshold.setValue(2.0); self.tradeVolumeZscoreThreshold.setSingleStep(0.1)
+        self.tradeWindowSize = QSpinBox(); self.tradeWindowSize.setRange(1, 1000); self.tradeWindowSize.setValue(100)
+        self.tradeVolumeProfileGroup.layout().addRow("빈 개수:", self.tradeNumBins)
+        self.tradeVolumeProfileGroup.layout().addRow("거래량 임계값:", self.tradeVolumeThreshold)
+        self.tradeVolumeProfileGroup.layout().addRow("Z-score 임계값:", self.tradeVolumeZscoreThreshold)
+        self.tradeVolumeProfileGroup.layout().addRow("윈도우 크기:", self.tradeWindowSize)
+        self.tradeVolumeProfileGroup.hide()
+        self.tradeParamLayout.addWidget(self.tradeVolumeProfileGroup)
+
+        # 머신러닝 파라미터
+        self.tradeMLGroup = self.create_param_group('머신러닝')
+        self.tradePredictionPeriod = QSpinBox(); self.tradePredictionPeriod.setRange(1, 100); self.tradePredictionPeriod.setValue(5)
+        self.tradeTrainingPeriod = QSpinBox(); self.tradeTrainingPeriod.setRange(1, 1000); self.tradeTrainingPeriod.setValue(100)
+        self.tradeMLGroup.layout().addRow("예측 기간:", self.tradePredictionPeriod)
+        self.tradeMLGroup.layout().addRow("학습 기간:", self.tradeTrainingPeriod)
+        self.tradeMLGroup.hide()
+        self.tradeParamLayout.addWidget(self.tradeMLGroup)
+
     def create_param_group(self, name=''):
         """파라미터 그룹 생성"""
         group = QGroupBox(name)
@@ -743,83 +805,80 @@ class AutoTradeWindow(QDialog):
         self.trading_enabled = not self.trading_enabled
         if self.trading_enabled:
             self.tradeStartBtn.setText("자동매매 중지")
-            self.start_price_updates()
+            # self.start_price_updates()
             self.start_auto_trading()
         else:
             self.tradeStartBtn.setText("자동매매 시작")
-            self.stop_price_updates()
+            # self.stop_price_updates()
             self.stop_auto_trading()
             
     def start_simulation(self):
-        def run_simulation():
-            balance = self.simInvestment.value()
-            position = 0
-            last_signal = None
-            price_history = []
-            trade_history = []
-            balance_history = []
-            is_first_buy = True
-            fee_rate = self.simFeeRateSpinBox.value() / 100 if hasattr(self, 'simFeeRateSpinBox') else 0.0004
-            while self.trading_enabled:
-                try:
-                    coin = self.simCoinCombo.currentText()
-                    strategy = self.simStrategyCombo.currentText()
-                    investment = self.simInvestment.value()
-                    price = python_bithumb.get_current_price(f"KRW-{coin}")
-                    now = datetime.now()
-                    if not price:
-                        self.update_sim_status.emit(f"[{now}] 현재가 조회 실패")
-                        time.sleep(1)
-                        continue
-                    df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval="minute1", count=1)
-                    if df.empty:
-                        self.update_sim_status.emit(f"[{now}] 거래량 데이터 없음")
-                        time.sleep(1)
-                        continue
-                    volume = df.iloc[0]['volume']
-                    signal = self.generate_signal(price, volume, strategy)
-                    self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 현재가: {price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {balance:,.0f}원, 포지션: {position:.6f}")
-                    price_history.append((now, price))
-                    balance_history.append((now, balance + position * price))
-
-                    # ShortPercent 전략: 최초 1회 무조건 매수
-                    if strategy == 'ShortPercent' and is_first_buy:
-                        amount = investment / price
-                        fee = amount * price * fee_rate
-                        position += amount
-                        balance -= (investment + fee)
-                        self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 최초 매수! {investment:,.0f}원 매수, 보유: {position:.6f} (수수료: {fee:,.0f}원)")
-                        trade_history.append({'time': now, 'type': 'buy', 'price': price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
-                        is_first_buy = False
-                        time.sleep(1)
-                        continue
-
-                    # 기존 신호 기반 매수/매도 로직
-                    if signal == 'buy':
-                        amount = investment / price
-                        fee = amount * price * fee_rate
-                        position += amount
-                        balance -= (investment + fee)
-                        self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 매수 신호! {investment:,.0f}원 매수, 보유: {position:.6f} (수수료: {fee:,.0f}원)")
-                        trade_history.append({'time': now, 'type': 'buy', 'price': price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
-                    elif signal == 'sell' and position > 0:
-                        sell_value = position * price
-                        fee = sell_value * fee_rate
-                        self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 매도 신호! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
-                        trade_history.append({'time': now, 'type': 'sell', 'price': price, 'amount': position, 'balance': balance + sell_value - fee, 'position': 0, 'fee': fee})
-                        balance += (sell_value - fee)
-                        position = 0
-                    time.sleep(1)
-                except Exception as e:
-                    self.update_sim_status.emit(f"시뮬레이션 오류: {str(e)}")
-                    time.sleep(5)
-            # 시뮬레이션 종료 후 차트 표시 (시그널로 메인스레드에서 실행)
-            self.show_sim_chart_signal.emit(price_history, trade_history, balance_history)
-        self.simulation_thread = threading.Thread(target=run_simulation)
+        # UI에서 필요한 파라미터 수집
+        coin = self.simCoinCombo.currentText()
+        strategy = self.simStrategyCombo.currentText()
+        initial_capital = self.simInvestment.value()
+        fee_rate = self.simFeeRateSpinBox.value() / 100 if hasattr(self, 'simFeeRateSpinBox') else 0.0004
+        # 전략별 파라미터 수집 (예시: 볼린저밴드)
+        params = {}
+        if strategy == 'RSI':
+            params = {
+                'period': self.simRsiPeriod.value(),
+                'overbought': self.simRsiOverbought.value(),
+                'oversold': self.simRsiOversold.value()
+            }
+        elif strategy == '볼린저밴드':
+            params = {
+                'period': self.simBbPeriod.value(),
+                'std': self.simBbStd.value()
+            }
+        elif strategy == 'MACD':
+            params = {
+                'fast_period': self.simMacdFastPeriod.value(),
+                'slow_period': self.simMacdSlowPeriod.value(),
+                'signal_period': self.simMacdSignalPeriod.value()
+            }
+        elif strategy == '이동평균선 교차':
+            params = {
+                'short_period': self.simMaShortPeriod.value(),
+                'long_period': self.simMaLongPeriod.value()
+            }
+        elif strategy == '스토캐스틱':
+            params = {
+                'period': self.simStochPeriod.value(),
+                'k_period': self.simStochKPeriod.value(),
+                'd_period': self.simStochDPeriod.value(),
+                'overbought': self.simStochOverbought.value(),
+                'oversold': self.simStochOversold.value()
+            }
+        elif strategy == 'ATR 기반 변동성 돌파':
+            params = {
+                'period': self.simAtrPeriod.value(),
+                'multiplier': self.simAtrMultiplier.value(),
+                'trend_period': self.simTrendPeriod.value(),
+                'stop_loss_multiplier': self.simStopLossMultiplier.value(),
+                'position_size_multiplier': self.simPositionSizeMultiplier.value()
+            }
+        elif strategy == '거래량 프로파일':
+            params = {
+                'num_bins': self.simNumBins.value(),
+                'volume_threshold': self.simVolumeThreshold.value(),
+                'volume_zscore_threshold': self.simVolumeZscoreThreshold.value(),
+                'window_size': self.simWindowSize.value()
+            }
+        elif strategy == '머신러닝':
+            params = {
+                'prediction_period': self.simPredictionPeriod.value(),
+                'training_period': self.simTrainingPeriod.value()
+            }
+        # 스레드로 외부 run_simulation 실행
+        self.simulation_thread = threading.Thread(
+            target=self.run_simulation,
+            args=(strategy, coin, params, initial_capital, fee_rate)
+        )
         self.simulation_thread.daemon = True
         self.simulation_thread.start()
 
-    def show_simulation_chart(self, price_history, trade_history, balance_history):
+    def show_simulation_chart(self, price_history, trade_history, balance_history, volume_history=None):
         """시뮬레이션 차트 표시"""
         try:
             # 기존 차트 창이 있으면 닫기
@@ -837,9 +896,9 @@ class AutoTradeWindow(QDialog):
             ax1.plot([t[0] for t in price_history], [t[1] for t in price_history], 'b-', label='가격')
             for t in trade_history:
                 if t['type'] == 'buy':
-                    ax1.scatter(t['date'], t['price'], color='r', marker='^', s=100)
-                else:
-                    ax1.scatter(t['exit_date'], t['exit_price'], color='g', marker='v', s=100)
+                    ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100)
+                elif t['type'] == 'sell':
+                    ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100)
             ax1.set_title('가격 및 거래')
             ax1.set_xlabel('시간')
             ax1.set_ylabel('가격')
@@ -847,10 +906,11 @@ class AutoTradeWindow(QDialog):
             ax1.legend()
             # 거래량 차트
             ax2 = fig.add_subplot(gs[1], sharex=ax1)
-            # price_history: (datetime, price), balance_history: (datetime, balance)
-            # 거래량은 price_history의 price 변화량으로 계산
-            volumes = [abs(price_history[i][1] - price_history[i-1][1]) if i > 0 else 0 for i in range(len(price_history))]
-            ax2.bar([t[0] for t in price_history], volumes, color='gray', label='거래량')
+            if volume_history is not None and len(volume_history) > 1:
+                times, volumes = zip(*volume_history)
+                ax2.scatter(times, volumes, color='limegreen', s=15, label='거래량')
+            else:
+                ax2.text(0.5, 0.5, '거래량 데이터 없음', ha='center', va='center', transform=ax2.transAxes)
             ax2.set_ylabel('거래량')
             ax2.grid(True, alpha=0.3)
             ax2.legend()
@@ -879,326 +939,320 @@ class AutoTradeWindow(QDialog):
             self.simulation_thread.join()
             self.simulation_thread = None
             
-    def start_price_updates(self):
-        def update_price():
-            while self.trading_enabled:
-                try:
-                    price = python_bithumb.get_current_price(f"KRW-{self.tradeCoinCombo.currentText()}")
-                    if price:
-                        self.tradeStatus.append(f"[{datetime.now()}] 현재가: {price:,.0f}원")
-                    time.sleep(1)
-                except Exception as e:
-                    self.tradeStatus.append(f"가격 업데이트 오류: {str(e)}")
-                    time.sleep(5)
-                    
-        self.price_update_thread = threading.Thread(target=update_price)
-        self.price_update_thread.daemon = True
-        self.price_update_thread.start()
-
-    def stop_price_updates(self):
-        self.trading_enabled = False
-        if hasattr(self, 'price_update_thread') and self.price_update_thread is not None:
-            self.price_update_thread.join()
-            self.price_update_thread = None
-
     def start_auto_trading(self):
-        def run_auto_trading():
-            while self.trading_enabled:
-                try:
-                    coin = self.tradeCoinCombo.currentText()
-                    strategy = self.tradeStrategyCombo.currentText()
-                    investment = self.tradeInvestment.value()
-                    
-                    # 현재가 조회
-                    price = python_bithumb.get_current_price(f"KRW-{coin}")
-                    if not price:
-                        continue
-                        
-                    # 거래량 조회
-                    df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval="minute1", count=1)
-                    if df.empty:
-                        continue
-                        
-                    volume = df.iloc[0]['volume']
-                    
-                    # 매매 신호 생성
-                    signal = self.generate_signal(price, volume, strategy)
-                    
-                    # 매매 실행
-                    if signal == 'buy':
-                        self.buy_market_order(investment)
-                        self.tradeStatus.append(f"[{datetime.now()}] 매수 실행: {price:,.0f}원")
-                    elif signal == 'sell':
-                        self.sell_market_order(investment)
-                        self.tradeStatus.append(f"[{datetime.now()}] 매도 실행: {price:,.0f}원")
-                        
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    self.tradeStatus.append(f"자동매매 오류: {str(e)}")
-                    time.sleep(5)
-                    
-        self.trading_thread = threading.Thread(target=run_auto_trading)
-        self.trading_thread.daemon = True
-        self.trading_thread.start()
-        
+        # UI에서 필요한 파라미터 수집
+        coin = self.tradeCoinCombo.currentText()
+        strategy = self.tradeStrategyCombo.currentText()
+        initial_capital = self.tradeInvestment.value()
+        # investment = self.tradeInvestment.value()
+        fee_rate = self.tradeFeeRateSpinBox.value() / 100 if hasattr(self, 'tradeFeeRateSpinBox') else 0.0004
+        # 전략별 파라미터 수집
+        params = {}
+        if strategy == 'RSI':
+            params = {
+                'period': self.tradeRsiPeriod.value(),
+                'overbought': self.tradeRsiOverbought.value(),
+                'oversold': self.tradeRsiOversold.value()
+            }
+        elif strategy == '볼린저밴드':
+            params = {
+                'period': self.tradeBbPeriod.value(),
+                'std': self.tradeBbStd.value()
+            }
+        elif strategy == 'MACD':
+            params = {
+                'fast_period': self.tradeMacdFastPeriod.value(),
+                'slow_period': self.tradeMacdSlowPeriod.value(),
+                'signal_period': self.tradeMacdSignalPeriod.value()
+            }
+        elif strategy == '이동평균선 교차':
+            params = {
+                'short_period': self.tradeMaShortPeriod.value(),
+                'long_period': self.tradeMaLongPeriod.value()
+            }
+        elif strategy == '스토캐스틱':
+            params = {
+                'period': self.tradeStochPeriod.value(),
+                'k_period': self.tradeStochKPeriod.value(),
+                'd_period': self.tradeStochDPeriod.value(),
+                'overbought': self.tradeStochOverbought.value(),
+                'oversold': self.tradeStochOversold.value()
+            }
+        elif strategy == 'ATR 기반 변동성 돌파':
+            params = {
+                'period': self.tradeAtrPeriod.value(),
+                'multiplier': self.tradeAtrMultiplier.value(),
+                'trend_period': self.tradeTrendPeriod.value(),
+                'stop_loss_multiplier': self.tradeStopLossMultiplier.value(),
+                'position_size_multiplier': self.tradePositionSizeMultiplier.value()
+            }
+        elif strategy == '거래량 프로파일':
+            params = {
+                'num_bins': self.tradeNumBins.value(),
+                'volume_threshold': self.tradeVolumeThreshold.value(),
+                'volume_zscore_threshold': self.tradeVolumeZscoreThreshold.value(),
+                'window_size': self.tradeWindowSize.value()
+            }
+        elif strategy == '머신러닝':
+            params = {
+                'prediction_period': self.tradePredictionPeriod.value(),
+                'training_period': self.tradeTrainingPeriod.value()
+            }
+                
+        # 스레드로 외부 run_simulation 실행
+        self.simulation_thread = threading.Thread(
+            target=self.run_auto_trading,
+            args=(strategy, coin, params, initial_capital, fee_rate)
+        )
+        self.simulation_thread.daemon = True
+        self.simulation_thread.start()
+
+
     def stop_auto_trading(self):
         self.trading_enabled = False
         if hasattr(self, 'trading_thread') and self.trading_thread is not None:
             self.trading_thread.join()
             self.trading_thread = None
             
-    def generate_signal(self, price, volume, strategy):
-        try:
-            df = self.fetch_realtime_data()
-            if df is None or len(df) < 30:
-                return None
+    # def generate_signal(self, price, volume, strategy):
+    #     try:
+    #         df = self.fetch_realtime_data()
+    #         if df is None or len(df) < 30:
+    #             return None
                 
-            strategy_obj = StrategyFactory.create_strategy(strategy)
-            if strategy_obj is None:
-                return None
+    #         strategy_obj = StrategyFactory.create_strategy(strategy)
+    #         if strategy_obj is None:
+    #             return None
                 
-            return strategy_obj.generate_signal(df)
+    #         return strategy_obj.generate_signal(df)
             
-        except Exception as e:
-            print(f"신호 생성 오류: {str(e)}")
-            return None 
+    #     except Exception as e:
+    #         print(f"신호 생성 오류: {str(e)}")
+    #         return None 
             
-    def fetch_realtime_data(self):
-        if not self.realtime_running:
-            return
-        try:
-            coin = self.tradeCoinCombo.currentText()
-            interval = self.interval_combo.currentText() if hasattr(self, 'interval_combo') else "1분봉"
-            interval_map = {
-                "1분봉": "minute1", "3분봉": "minute3", "5분봉": "minute5",
-                "15분봉": "minute15", "30분봉": "minute30",
-                "1시간봉": "hour1", "4시간봉": "hour4",
-                "일봉": "day", "주봉": "week", "월봉": "month"
-            }
-            api_interval = interval_map.get(interval, "minute1")
-            df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval=api_interval, count=100)
-            if df is not None and not df.empty:
-                df = df.reset_index()
-                self.realtime_ohlcv_data = []
-                self.realtime_price_data = []
-                self.realtime_time_data = []
-                self.realtime_volume_data = []
-                for i in range(len(df)):
-                    ohlcv = {
-                        'time': df.iloc[i][df.columns[0]],
-                        'open': df.iloc[i]['open'],
-                        'high': df.iloc[i]['high'],
-                        'low': df.iloc[i]['low'],
-                        'close': df.iloc[i]['close'],
-                        'volume': df.iloc[i]['volume']
-                    }
-                    self.realtime_ohlcv_data.append(ohlcv)
-                    self.realtime_price_data.append(ohlcv['close'])
-                    self.realtime_time_data.append(ohlcv['time'])
-                    self.realtime_volume_data.append(ohlcv['volume'])
-                self.update_chart()
-        except Exception as e:
-            print(f"실시간 데이터 수집 오류: {str(e)}")
-            traceback.print_exc()
+    # def fetch_realtime_data(self):
+    #     if not self.realtime_running:
+    #         return
+    #     try:
+    #         coin = self.tradeCoinCombo.currentText()
+    #         interval = self.interval_combo.currentText() if hasattr(self, 'interval_combo') else "1분봉"
+    #         interval_map = {
+    #             "1분봉": "minute1", "3분봉": "minute3", "5분봉": "minute5",
+    #             "15분봉": "minute15", "30분봉": "minute30",
+    #             "1시간봉": "hour1", "4시간봉": "hour4",
+    #             "일봉": "day", "주봉": "week", "월봉": "month"
+    #         }
+    #         api_interval = interval_map.get(interval, "minute1")
+    #         df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval=api_interval, count=100)
+    #         if df is not None and not df.empty:
+    #             df = df.reset_index()
+    #             self.realtime_ohlcv_data = []
+    #             self.realtime_price_data = []
+    #             self.realtime_time_data = []
+    #             self.realtime_volume_data = []
+    #             for i in range(len(df)):
+    #                 ohlcv = {
+    #                     'time': df.iloc[i][df.columns[0]],
+    #                     'open': df.iloc[i]['open'],
+    #                     'high': df.iloc[i]['high'],
+    #                     'low': df.iloc[i]['low'],
+    #                     'close': df.iloc[i]['close'],
+    #                     'volume': df.iloc[i]['volume']
+    #                 }
+    #                 self.realtime_ohlcv_data.append(ohlcv)
+    #                 self.realtime_price_data.append(ohlcv['close'])
+    #                 self.realtime_time_data.append(ohlcv['time'])
+    #                 self.realtime_volume_data.append(ohlcv['volume'])
+    #             self.update_chart()
+    #     except Exception as e:
+    #         print(f"실시간 데이터 수집 오류: {str(e)}")
+    #         traceback.print_exc()
 
-    def update_chart(self):
-        try:
-            self.figure.clear()
-            chart_type = self.chart_type_combo.currentText() if hasattr(self, 'chart_type_combo') else "라인차트"
-            interval = self.interval_combo.currentText() if hasattr(self, 'interval_combo') else "1분봉"
-            period = self.period_combo.currentText() if hasattr(self, 'period_combo') else "1일"
-            indicator = self.indicator_combo.currentText() if hasattr(self, 'indicator_combo') else "없음"
-            ax1 = self.figure.add_subplot(211)
-            if chart_type == "캔들차트" and len(self.realtime_ohlcv_data) > 0:
-                for ohlcv in self.realtime_ohlcv_data:
-                    time = ohlcv['time']
-                    open_price = ohlcv['open']
-                    high = ohlcv['high']
-                    low = ohlcv['low']
-                    close = ohlcv['close']
-                    if close >= open_price:
-                        color = 'red'
-                        body_bottom = open_price
-                        body_top = close
-                    else:
-                        color = 'blue'
-                        body_bottom = close
-                        body_top = open_price
-                    ax1.plot([time, time], [low, high], color=color, linewidth=1)
-                    ax1.plot([time, time], [body_bottom, body_top], color=color, linewidth=3)
-            else:
-                if len(self.realtime_price_data) > 0:
-                    ax1.plot(self.realtime_time_data, self.realtime_price_data, 'b-', label='가격')
-            # 기술적 지표 추가 (생략, 기존 코드 유지)
-            ax1.set_ylabel('가격')
-            ax1.grid(True, alpha=0.3)
-            ax1.legend()
-            ax2 = self.figure.add_subplot(212)
-            if len(self.realtime_volume_data) > 0:
-                ax2.bar(self.realtime_time_data, self.realtime_volume_data, color='g', alpha=0.5, label='거래량')
-            ax2.set_xlabel('시간')
-            ax2.set_ylabel('거래량')
-            ax2.grid(True, alpha=0.3)
-            # x축 포맷 설정
-            for ax in [ax1, ax2]:
-                if interval in ["주봉", "월봉", "일봉"]:
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-                else:
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
-            self.figure.tight_layout()
-            self.canvas.draw()
-        except Exception as e:
-            print(f"차트 업데이트 오류: {str(e)}")
-            traceback.print_exc()
+    # def update_chart(self):
+    #     try:
+    #         self.figure.clear()
+    #         chart_type = self.chart_type_combo.currentText() if hasattr(self, 'chart_type_combo') else "라인차트"
+    #         interval = self.interval_combo.currentText() if hasattr(self, 'interval_combo') else "1분봉"
+    #         period = self.period_combo.currentText() if hasattr(self, 'period_combo') else "1일"
+    #         indicator = self.indicator_combo.currentText() if hasattr(self, 'indicator_combo') else "없음"
+    #         ax1 = self.figure.add_subplot(211)
+    #         if chart_type == "캔들차트" and len(self.realtime_ohlcv_data) > 0:
+    #             for ohlcv in self.realtime_ohlcv_data:
+    #                 time = ohlcv['time']
+    #                 open_price = ohlcv['open']
+    #                 high = ohlcv['high']
+    #                 low = ohlcv['low']
+    #                 close = ohlcv['close']
+    #                 if close >= open_price:
+    #                     color = 'red'
+    #                     body_bottom = open_price
+    #                     body_top = close
+    #                 else:
+    #                     color = 'blue'
+    #                     body_bottom = close
+    #                     body_top = open_price
+    #                 ax1.plot([time, time], [low, high], color=color, linewidth=1)
+    #                 ax1.plot([time, time], [body_bottom, body_top], color=color, linewidth=3)
+    #         else:
+    #             if len(self.realtime_price_data) > 0:
+    #                 ax1.plot(self.realtime_time_data, self.realtime_price_data, 'b-', label='가격')
+    #         # 기술적 지표 추가 (생략, 기존 코드 유지)
+    #         ax1.set_ylabel('가격')
+    #         ax1.grid(True, alpha=0.3)
+    #         ax1.legend()
+    #         ax2 = self.figure.add_subplot(212)
+    #         if len(self.realtime_volume_data) > 0:
+    #             ax2.bar(self.realtime_time_data, self.realtime_volume_data, color='g', alpha=0.5, label='거래량')
+    #         ax2.set_xlabel('시간')
+    #         ax2.set_ylabel('거래량')
+    #         ax2.grid(True, alpha=0.3)
+    #         # x축 포맷 설정
+    #         for ax in [ax1, ax2]:
+    #             if interval in ["주봉", "월봉", "일봉"]:
+    #                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    #             else:
+    #                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    #             plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    #         self.figure.tight_layout()
+    #         self.canvas.draw()
+    #     except Exception as e:
+    #         print(f"차트 업데이트 오류: {str(e)}")
+    #         traceback.print_exc()
 
-    def open_realtime_chart_window(self):
-        if self.realtime_chart_window is not None:
-            self.realtime_chart_window.close()
+    # def open_realtime_chart_window(self):
+    #     if self.realtime_chart_window is not None:
+    #         self.realtime_chart_window.close()
             
-        self.realtime_chart_window = QDialog(self)
-        self.realtime_chart_window.setWindowTitle('실시간 차트')
-        self.realtime_chart_window.setGeometry(200, 200, 1200, 800)
+    #     self.realtime_chart_window = QDialog(self)
+    #     self.realtime_chart_window.setWindowTitle('실시간 차트')
+    #     self.realtime_chart_window.setGeometry(200, 200, 1200, 800)
         
-        layout = QVBoxLayout()
+    #     layout = QVBoxLayout()
         
-        # 차트 옵션 그룹
-        options_group = QGroupBox("차트 옵션")
-        options_layout = QHBoxLayout()
+    #     # 차트 옵션 그룹
+    #     options_group = QGroupBox("차트 옵션")
+    #     options_layout = QHBoxLayout()
         
-        # 차트 타입 선택
-        chart_type_label = QLabel("차트 타입:")
-        self.chart_type_combo = QComboBox()
-        self.chart_type_combo.addItems(["캔들차트", "라인차트"])
-        self.chart_type_combo.currentTextChanged.connect(self.update_chart)
+    #     # 차트 타입 선택
+    #     chart_type_label = QLabel("차트 타입:")
+    #     self.chart_type_combo = QComboBox()
+    #     self.chart_type_combo.addItems(["캔들차트", "라인차트"])
+    #     self.chart_type_combo.currentTextChanged.connect(self.update_chart)
         
-        # 시간대 선택
-        interval_label = QLabel("시간대:")
-        self.interval_combo = QComboBox()
-        self.interval_combo.addItems(["1분봉", "3분봉", "5분봉", "15분봉", "30분봉", "1시간봉", "4시간봉", "일봉", "주봉", "월봉"])
-        self.interval_combo.currentTextChanged.connect(self.update_chart)
+    #     # 시간대 선택
+    #     interval_label = QLabel("시간대:")
+    #     self.interval_combo = QComboBox()
+    #     self.interval_combo.addItems(["1분봉", "3분봉", "5분봉", "15분봉", "30분봉", "1시간봉", "4시간봉", "일봉", "주봉", "월봉"])
+    #     self.interval_combo.currentTextChanged.connect(self.update_chart)
         
-        # 기간 선택
-        period_label = QLabel("기간:")
-        self.period_combo = QComboBox()
-        self.period_combo.addItems(["1일", "3일", "1주", "2주", "1개월", "3개월", "6개월", "1년"])
-        self.period_combo.currentTextChanged.connect(self.update_chart)
+    #     # 기간 선택
+    #     period_label = QLabel("기간:")
+    #     self.period_combo = QComboBox()
+    #     self.period_combo.addItems(["1일", "3일", "1주", "2주", "1개월", "3개월", "6개월", "1년"])
+    #     self.period_combo.currentTextChanged.connect(self.update_chart)
         
-        # 기술적 지표 선택
-        indicator_label = QLabel("기술적 지표:")
-        self.indicator_combo = QComboBox()
-        self.indicator_combo.addItems(["없음", "이동평균선", "볼린저밴드", "MACD", "RSI"])
-        self.indicator_combo.currentTextChanged.connect(self.update_chart)
+    #     # 기술적 지표 선택
+    #     indicator_label = QLabel("기술적 지표:")
+    #     self.indicator_combo = QComboBox()
+    #     self.indicator_combo.addItems(["없음", "이동평균선", "볼린저밴드", "MACD", "RSI"])
+    #     self.indicator_combo.currentTextChanged.connect(self.update_chart)
         
-        options_layout.addWidget(chart_type_label)
-        options_layout.addWidget(self.chart_type_combo)
-        options_layout.addWidget(interval_label)
-        options_layout.addWidget(self.interval_combo)
-        options_layout.addWidget(period_label)
-        options_layout.addWidget(self.period_combo)
-        options_layout.addWidget(indicator_label)
-        options_layout.addWidget(self.indicator_combo)
+    #     options_layout.addWidget(chart_type_label)
+    #     options_layout.addWidget(self.chart_type_combo)
+    #     options_layout.addWidget(interval_label)
+    #     options_layout.addWidget(self.interval_combo)
+    #     options_layout.addWidget(period_label)
+    #     options_layout.addWidget(self.period_combo)
+    #     options_layout.addWidget(indicator_label)
+    #     options_layout.addWidget(self.indicator_combo)
         
-        options_group.setLayout(options_layout)
-        layout.addWidget(options_group)
+    #     options_group.setLayout(options_layout)
+    #     layout.addWidget(options_group)
         
-        # 차트 생성
-        self.realtime_figure = Figure(figsize=(12, 8))
-        self.realtime_canvas = FigureCanvas(self.realtime_figure)
-        layout.addWidget(self.realtime_canvas)
+    #     # 차트 생성
+    #     self.realtime_figure = Figure(figsize=(12, 8))
+    #     self.realtime_canvas = FigureCanvas(self.realtime_figure)
+    #     layout.addWidget(self.realtime_canvas)
         
-        # 하단 버튼
-        button_layout = QHBoxLayout()
-        stop_btn = QPushButton('실시간 차트 중지 및 창 닫기')
-        stop_btn.clicked.connect(self.close_realtime_chart_window)
-        save_btn = QPushButton('차트 저장')
-        save_btn.clicked.connect(self.save_chart)
-        button_layout.addWidget(stop_btn)
-        button_layout.addWidget(save_btn)
-        layout.addLayout(button_layout)
+    #     # 하단 버튼
+    #     button_layout = QHBoxLayout()
+    #     stop_btn = QPushButton('실시간 차트 중지 및 창 닫기')
+    #     stop_btn.clicked.connect(self.close_realtime_chart_window)
+    #     save_btn = QPushButton('차트 저장')
+    #     save_btn.clicked.connect(self.save_chart)
+    #     button_layout.addWidget(stop_btn)
+    #     button_layout.addWidget(save_btn)
+    #     layout.addLayout(button_layout)
         
-        self.realtime_chart_window.setLayout(layout)
-        self.realtime_running = True
-        self.realtime_price_data = []
-        self.realtime_time_data = []
-        self.realtime_volume_data = []
-        self.realtime_ohlcv_data = []  # OHLCV 데이터 추가
-        self.realtime_ycenter = None
-        self.realtime_timer.start(1000)
-        self.realtime_chart_window.finished.connect(self.close_realtime_chart_window)
-        self.realtime_chart_window.show()
+    #     self.realtime_chart_window.setLayout(layout)
+    #     self.realtime_running = True
+    #     self.realtime_price_data = []
+    #     self.realtime_time_data = []
+    #     self.realtime_volume_data = []
+    #     self.realtime_ohlcv_data = []  # OHLCV 데이터 추가
+    #     self.realtime_ycenter = None
+    #     self.realtime_timer.start(1000)
+    #     self.realtime_chart_window.finished.connect(self.close_realtime_chart_window)
+    #     self.realtime_chart_window.show()
 
-    def save_chart(self):
-        try:
-            file_name, _ = QFileDialog.getSaveFileName(
-                self.realtime_chart_window,
-                "차트 저장",
-                "",
-                "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*.*)"
-            )
-            if file_name:
-                self.realtime_canvas.figure.savefig(file_name)
-                QMessageBox.information(self.realtime_chart_window, "저장 완료", "차트가 성공적으로 저장되었습니다.")
-        except Exception as e:
-            QMessageBox.warning(self.realtime_chart_window, "저장 실패", f"차트 저장 중 오류가 발생했습니다: {str(e)}")
+    # def save_chart(self):
+    #     try:
+    #         file_name, _ = QFileDialog.getSaveFileName(
+    #             self.realtime_chart_window,
+    #             "차트 저장",
+    #             "",
+    #             "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*.*)"
+    #         )
+    #         if file_name:
+    #             self.realtime_canvas.figure.savefig(file_name)
+    #             QMessageBox.information(self.realtime_chart_window, "저장 완료", "차트가 성공적으로 저장되었습니다.")
+    #     except Exception as e:
+    #         QMessageBox.warning(self.realtime_chart_window, "저장 실패", f"차트 저장 중 오류가 발생했습니다: {str(e)}")
 
-    def close_realtime_chart_window(self):
-        self.realtime_running = False
-        self.realtime_timer.stop()
-        if self.realtime_chart_window is not None:
-            self.realtime_chart_window.close()
-            self.realtime_chart_window = None
+    # def close_realtime_chart_window(self):
+    #     self.realtime_running = False
+    #     self.realtime_timer.stop()
+    #     if self.realtime_chart_window is not None:
+    #         self.realtime_chart_window.close()
+    #         self.realtime_chart_window = None
             
-    def calculate_fee(self, amount, price):
-        """거래 수수료 계산"""
-        fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
-        return amount * price * fee_rate
-
-    def apply_fee_to_trade(self, trade):
-        """거래에 수수료 적용"""
-        fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
-        trade['fee'] = self.calculate_fee(trade['amount'], trade['price'])
-        trade['net_amount'] = trade['amount'] - trade['fee']
-        return trade
-
-    def buy_market_order(self, investment):
-        """시장가 매수 주문"""
-        try:
-            current_price = float(self.currentPriceLabel.text().replace(',', ''))
-            fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
-            fee = investment * fee_rate
-            amount = (investment - fee) / current_price
+    # def buy_market_order(self, investment):
+    #     """시장가 매수 주문"""
+    #     try:
+    #         current_price = float(self.currentPriceLabel.text().replace(',', ''))
+    #         fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
+    #         fee = investment * fee_rate
+    #         amount = (investment - fee) / current_price
             
-            return {
-                'type': 'buy',
-                'price': current_price,
-                'amount': amount,
-                'fee': fee,
-                'timestamp': datetime.now()
-            }
-        except Exception as e:
-            print(f"매수 주문 오류: {str(e)}")
-            return None
+    #         return {
+    #             'type': 'buy',
+    #             'price': current_price,
+    #             'amount': amount,
+    #             'fee': fee,
+    #             'timestamp': datetime.now()
+    #         }
+    #     except Exception as e:
+    #         print(f"매수 주문 오류: {str(e)}")
+    #         return None
 
-    def sell_market_order(self, investment):
-        """시장가 매도 주문"""
-        try:
-            current_price = float(self.currentPriceLabel.text().replace(',', ''))
-            fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
-            fee = investment * current_price * fee_rate
-            amount = investment / current_price
+    # def sell_market_order(self, investment):
+    #     """시장가 매도 주문"""
+    #     try:
+    #         current_price = float(self.currentPriceLabel.text().replace(',', ''))
+    #         fee_rate = float(self.feeRateInput.text()) / 100  # UI에서 수수료율을 가져와서 계산
+    #         fee = investment * current_price * fee_rate
+    #         amount = investment / current_price
             
-            return {
-                'type': 'sell',
-                'price': current_price,
-                'amount': amount,
-                'fee': fee,
-                'timestamp': datetime.now()
-            }
-        except Exception as e:
-            print(f"매도 주문 오류: {str(e)}")
-            return None
+    #         return {
+    #             'type': 'sell',
+    #             'price': current_price,
+    #             'amount': amount,
+    #             'fee': fee,
+    #             'timestamp': datetime.now()
+    #         }
+    #     except Exception as e:
+    #         print(f"매도 주문 오류: {str(e)}")
+    #         return None
 
     def plot_backtest_results(self, df, trades, final_capital, daily_balance):
         try:
@@ -1256,9 +1310,9 @@ class AutoTradeWindow(QDialog):
             ax2.set_ylabel('자본금')
             ax2.grid(True)
 
-            # 거래량 차트 (추가)
+            # 거래량 차트 (점으로 표시)
             if 'volume' in df.columns:
-                ax3.bar(df.index, df['volume'], color='gray', alpha=0.5, label='거래량')
+                ax3.scatter(df.index, df['volume'], color='limegreen', s=15, label='거래량')
                 ax3.set_ylabel('거래량')
                 ax3.set_xlabel('날짜')
                 ax3.grid(True, alpha=0.3)
@@ -1317,90 +1371,8 @@ class AutoTradeWindow(QDialog):
         # 스크롤을 항상 최신 메시지로 이동
         self.dataResult.verticalScrollBar().setValue(
             self.dataResult.verticalScrollBar().maximum()
-        ) 
-
-
-    def calculate_performance_metrics(self, df):
-        """성과 지표를 계산하는 메서드"""
-        try:
-            # 일별 수익률 계산
-            df['returns'] = df['close'].pct_change()
-            
-            # 샤프 비율 계산
-            risk_free_rate = 0.02  # 연간 무위험 수익률 (예: 2%)
-            excess_returns = df['returns'] - risk_free_rate/252  # 일별 무위험 수익률
-            sharpe_ratio = np.sqrt(252) * excess_returns.mean() / excess_returns.std()
-            
-            # 소르티노 비율 계산
-            downside_returns = df['returns'][df['returns'] < 0]
-            sortino_ratio = np.sqrt(252) * excess_returns.mean() / downside_returns.std()
-            
-            # 최대 낙폭(MDD) 계산
-            cumulative_returns = (1 + df['returns']).cumprod()
-            rolling_max = cumulative_returns.expanding().max()
-            drawdowns = cumulative_returns / rolling_max - 1
-            mdd = drawdowns.min()
-            
-            # 승률 계산
-            trades = df[df['signal'] != 0]
-            if len(trades) > 0:
-                winning_trades = trades[trades['returns'] > 0]
-                win_rate = len(winning_trades) / len(trades)
-            else:
-                win_rate = 0
-            
-            # 손익비 계산
-            if len(trades) > 0:
-                avg_win = trades[trades['returns'] > 0]['returns'].mean()
-                avg_loss = abs(trades[trades['returns'] < 0]['returns'].mean())
-                profit_factor = avg_win / avg_loss if avg_loss != 0 else float('inf')
-            else:
-                profit_factor = 0
-            
-            # 연간 수익률 계산
-            annual_return = (1 + df['returns']).prod() ** (252/len(df)) - 1
-            
-            return {
-                'sharpe_ratio': sharpe_ratio,
-                'sortino_ratio': sortino_ratio,
-                'mdd': mdd,
-                'win_rate': win_rate,
-                'profit_factor': profit_factor,
-                'annual_return': annual_return
-            }
-            
-        except Exception as e:
-            print(f"성과 지표 계산 중 오류 발생: {str(e)}")
-            return None    
-
-    def calculate_fee(self, amount, price, fee_rate=0.0005):
-        """수수료 계산"""
-        return amount * price * fee_rate
-
-    def apply_fee_to_trade(self, trade, fee_rate=0.0005):
-        """거래에 수수료 적용"""
-        if trade['type'] == 'buy':
-            trade['price'] *= (1 + fee_rate)
-        else:
-            trade['price'] *= (1 - fee_rate)
-        return trade
-
-    def calculate_volume_profile(self, df, num_bins=10):
-        """거래량 프로파일 계산"""
-        price_range = df['high'].max() - df['low'].min()
-        bin_size = price_range / num_bins
-        bins = np.arange(df['low'].min(), df['high'].max() + bin_size, bin_size)
-        volume_profile = np.zeros(num_bins)
-        
-        for i in range(len(df)):
-            price = df['close'].iloc[i]
-            volume = df['volume'].iloc[i]
-            bin_idx = int((price - df['low'].min()) / bin_size)
-            if 0 <= bin_idx < num_bins:
-                volume_profile[bin_idx] += volume
-                
-        return bins, volume_profile
-     
+        )    
+    
     # --- 파라미터 그룹 표시/숨김 함수 분리 ---
     def update_backtest_param_groups_visibility(self, strategy):
         # 모든 파라미터 그룹 리스트
@@ -1437,7 +1409,10 @@ class AutoTradeWindow(QDialog):
             self.backtestParamLayout.addWidget(group_to_show)
 
     def update_sim_param_groups_visibility(self, strategy):
-        groups = [self.simRsiGroup, self.simBbGroup, self.simMacdGroup, self.simMaGroup, self.simStochGroup, self.simAtrGroup]
+        groups = [
+            self.simRsiGroup, self.simBbGroup, self.simMacdGroup, self.simMaGroup,
+            self.simStochGroup, self.simAtrGroup, self.simVolumeProfileGroup, self.simMLGroup
+        ]
         for group in groups:
             group.hide()
         if strategy == "RSI":
@@ -1452,9 +1427,16 @@ class AutoTradeWindow(QDialog):
             self.simStochGroup.show()
         elif strategy == "ATR 기반 변동성 돌파":
             self.simAtrGroup.show()
+        elif strategy == "거래량 프로파일":
+            self.simVolumeProfileGroup.show()
+        elif strategy == "머신러닝":
+            self.simMLGroup.show()
 
     def update_trade_param_groups_visibility(self, strategy):
-        groups = [self.tradeRsiGroup, self.tradeBbGroup, self.tradeMacdGroup, self.tradeMaGroup, self.tradeStochGroup, self.tradeAtrGroup]
+        groups = [
+            self.tradeRsiGroup, self.tradeBbGroup, self.tradeMacdGroup, self.tradeMaGroup,
+            self.tradeStochGroup, self.tradeAtrGroup, self.tradeVolumeProfileGroup, self.tradeMLGroup
+        ]
         for group in groups:
             group.hide()
         if strategy == "RSI":
@@ -1469,6 +1451,10 @@ class AutoTradeWindow(QDialog):
             self.tradeStochGroup.show()
         elif strategy == "ATR 기반 변동성 돌파":
             self.tradeAtrGroup.show()
+        elif strategy == "거래량 프로파일":
+            self.tradeVolumeProfileGroup.show()
+        elif strategy == "머신러닝":
+            self.tradeMLGroup.show()
 
     # --- 콤보박스 변경 시 연결 함수도 분리 ---
     def update_param_groups(self, strategy):
@@ -1703,6 +1689,7 @@ class AutoTradeWindow(QDialog):
             price_history = []
             trade_history = []
             balance_history = []
+            volume_history = []  # 거래량 기록 추가
 
             # 전략별로 필요한 최소 캔들 개수 계산
             min_candle = 30  # 기본값
@@ -1723,15 +1710,22 @@ class AutoTradeWindow(QDialog):
 
             while self.trading_enabled:
                 try:
-                    # 실시간 캔들 데이터, 필요한 만큼만 가져오기
+                    # 실시간 현재가 조회
+                    current_price = python_bithumb.get_current_price(f"KRW-{coin}")
+                    if current_price is None:
+                        self.update_sim_status.emit("현재가 조회 실패")
+                        time.sleep(1)
+                        continue
+
+                    # OHLCV 데이터는 전략 계산용으로만 사용
                     df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval="minute1", count=min_candle)
                     if df.empty or len(df) < min_candle:
                         self.update_sim_status.emit(f"캔들 데이터 부족: {len(df)}개")
                         time.sleep(1)
                         continue
 
-                    price = df.iloc[-1]['close']
                     now = datetime.now()
+                    volume = df.iloc[-1]['volume']  # 거래량은 캔들 데이터에서 가져옴
 
                     # 전략 객체 생성 및 신호 생성
                     strategy_obj = StrategyFactory.create_strategy(strategy)
@@ -1742,39 +1736,149 @@ class AutoTradeWindow(QDialog):
                     signal = strategy_obj.generate_signal(df, **params)
 
                     # 상태 업데이트
-                    self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 현재가: {price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {balance:,.0f}원, 포지션: {position:.6f}")
-                    price_history.append((now, price))
-                    balance_history.append((now, balance + position * price))
+                    self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 현재가: {current_price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {balance:,.0f}원, 포지션: {position:.6f}")
+                    price_history.append((now, current_price))
+                    balance_history.append((now, balance + position * current_price))
+                    volume_history.append((now, volume))
 
                     # 매매 신호에 따른 거래 실행
                     if signal == 'buy' and last_signal != 'buy':
-                        amount = initial_capital / price
-                        fee = amount * price * fee_rate
+                        amount = initial_capital / current_price
+                        fee = amount * current_price * fee_rate
                         position += amount
                         balance -= (initial_capital + fee)
                         self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 매수 신호! {initial_capital:,.0f}원 매수, 보유: {position:.6f} (수수료: {fee:,.0f}원)")
-                        trade_history.append({'time': now, 'type': 'buy', 'price': price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
+                        trade_history.append({'time': now, 'type': 'buy', 'price': current_price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
                         last_signal = 'buy'
                     elif signal == 'sell' and position > 0 and last_signal != 'sell':
-                        sell_value = position * price
+                        sell_value = position * current_price
                         fee = sell_value * fee_rate
                         self.update_sim_status.emit(f"[{now.strftime('%H:%M:%S')}] 매도 신호! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
-                        trade_history.append({'time': now, 'type': 'sell', 'price': price, 'amount': position, 'balance': balance + sell_value - fee, 'position': 0, 'fee': fee})
+                        trade_history.append({'time': now, 'type': 'sell', 'price': current_price, 'amount': position, 'balance': balance + sell_value - fee, 'position': 0, 'fee': fee})
                         balance += (sell_value - fee)
                         position = 0
                         last_signal = 'sell'
                     else:
                         last_signal = None
 
-                    time.sleep(1)
+                    time.sleep(1)  # 1초마다 업데이트
                 except Exception as e:
                     self.update_sim_status.emit(f"시뮬레이션 오류: {str(e)}")
                     traceback.print_exc()
                     time.sleep(5)
 
             # 시뮬레이션 종료 후 차트 표시
-            self.show_sim_chart_signal.emit(price_history, trade_history, balance_history)
+            self.show_sim_chart_signal.emit(price_history, trade_history, balance_history, volume_history)
 
         except Exception as e:
             self.update_sim_status.emit(f"시뮬레이션 실행 중 오류 발생: {str(e)}")
+            traceback.print_exc()
+
+    def run_auto_trading(self, strategy, coin, params, initial_capital, fee_rate):
+        """자동매매 실행"""
+        try:
+            balance = initial_capital
+            position = 0
+            last_signal = None
+            price_history = []
+            trade_history = []
+            balance_history = []
+            volume_history = []
+
+            # 전략별로 필요한 최소 캔들 개수 계산
+            min_candle = 30  # 기본값
+            if strategy == 'RSI':
+                min_candle = max(30, params.get('period', 14) + 1)
+            elif strategy == '볼린저밴드':
+                min_candle = max(30, params.get('period', 20) + 1)
+            elif strategy == 'MACD':
+                min_candle = max(30, params.get('slow_period', 26) + params.get('signal_period', 9))
+            elif strategy == '이동평균선 교차':
+                min_candle = max(30, params.get('long_period', 20) + 1)
+            elif strategy == '스토캐스틱':
+                min_candle = max(30, params.get('period', 14) + params.get('d_period', 3))
+            elif strategy == 'ATR 기반 변동성 돌파':
+                min_candle = max(30, params.get('period', 14) + 1)
+            elif strategy == '거래량 프로파일':
+                min_candle = max(30, params.get('num_bins', 10) * 2)
+
+            while self.trading_enabled:
+                try:
+                    # 실시간 현재가 조회
+                    current_price = python_bithumb.get_current_price(f"KRW-{coin}")
+                    if current_price is None:
+                        self.tradeStatus.append("현재가 조회 실패")
+                        time.sleep(1)
+                        continue
+
+                    # OHLCV 데이터는 전략 계산용으로만 사용
+                    df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval="minute1", count=min_candle)
+                    if df.empty or len(df) < min_candle:
+                        self.tradeStatus.append(f"캔들 데이터 부족: {len(df)}개")
+                        time.sleep(1)
+                        continue
+
+                    now = datetime.now()
+                    volume = df.iloc[-1]['volume']  # 거래량은 캔들 데이터에서 가져옴
+
+                    # 전략 객체 생성 및 신호 생성
+                    strategy_obj = StrategyFactory.create_strategy(strategy)
+                    if strategy_obj is None:
+                        time.sleep(1)
+                        continue
+
+                    signal = strategy_obj.generate_signal(df, **params)
+
+                    # 상태 업데이트
+                    self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 현재가: {current_price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {balance:,.0f}원, 포지션: {position:.6f}")
+                    price_history.append((now, current_price))
+                    balance_history.append((now, balance + position * current_price))
+                    volume_history.append((now, volume))
+
+                    # 매매 신호에 따른 거래 실행
+                    if signal == 'buy' and last_signal != 'buy':
+                        # 매수 주문
+                        amount = initial_capital / current_price
+                        fee = amount * current_price * fee_rate
+                        
+                        # 실제 매수 주문 실행
+                        order = self.parent.bithumb.buy_market_order(coin, amount)
+                        if order and 'error' not in order:
+                            position += amount
+                            balance -= (initial_capital + fee)
+                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {initial_capital:,.0f}원 매수, 보유: {position:.6f} (수수료: {fee:,.0f}원)")
+                            trade_history.append({'time': now, 'type': 'buy', 'price': current_price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
+                            last_signal = 'buy'
+                        else:
+                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매수 주문 실패: {order.get('error', '알 수 없는 오류')}")
+                            
+                    elif signal == 'sell' and position > 0 and last_signal != 'sell':
+                        # 매도 주문
+                        sell_value = position * current_price
+                        fee = sell_value * fee_rate
+                        
+                        # 실제 매도 주문 실행
+                        order = self.parent.bithumb.sell_market_order(coin, position)
+                        if order and 'error' not in order:
+                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매도 주문 성공! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
+                            trade_history.append({'time': now, 'type': 'sell', 'price': current_price, 'amount': position, 'balance': balance + sell_value - fee, 'position': 0, 'fee': fee})
+                            balance += (sell_value - fee)
+                            position = 0
+                            last_signal = 'sell'
+                        else:
+                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매도 주문 실패: {order.get('error', '알 수 없는 오류')}")
+                    else:
+                        last_signal = None
+
+                    time.sleep(1)  # 1초마다 업데이트
+                except Exception as e:
+                    self.tradeStatus.append(f"자동매매 오류: {str(e)}")
+                    traceback.print_exc()
+                    time.sleep(5)
+
+            # 자동매매 종료 후 차트 표시
+            self.show_sim_chart_signal.emit(price_history, trade_history, balance_history, volume_history)
+
+        except Exception as e:
+            self.tradeStatus.append(f"자동매매 실행 중 오류 발생: {str(e)}")
             traceback.print_exc()
