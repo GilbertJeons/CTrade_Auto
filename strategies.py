@@ -173,6 +173,64 @@ class StochasticStrategy(BaseStrategy):
             return 'sell'
         return None
 
+class BbRsiStrategy(BaseStrategy):
+    """볼린저밴드 + RSI 전략"""
+    def generate_signal(self, df, bb_period=20, bb_std=2, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
+        try:
+            # 볼린저 밴드 계산
+            upper, middle, lower = self.calculate_bollinger_bands(df['close'], bb_period, bb_std)
+            
+            # RSI 계산
+            rsi = self.calculate_rsi(df['close'], rsi_period)
+            
+            current_price = df['close'].iloc[-1]
+            current_rsi = rsi.iloc[-1]
+            
+            # 매수 신호: RSI가 과매도 구간이고 가격이 하단밴드 아래
+            if current_rsi < rsi_oversold and current_price < lower.iloc[-1]:
+                return 'buy'
+            # 매도 신호: RSI가 과매수 구간이고 가격이 상단밴드 위
+            elif current_rsi > rsi_overbought and current_price > upper.iloc[-1]:
+                return 'sell'
+                
+            return None
+            
+        except Exception as e:
+            print(f"BB+RSI 신호 생성 오류: {str(e)}")
+            return None
+
+class MacdEmaStrategy(BaseStrategy):
+    """MACD + EMA 전략"""
+    def generate_signal(self, df, macd_fast=12, macd_slow=26, macd_signal=9, ema_short=9, ema_long=21):
+        try:
+            # MACD 계산
+            macd, signal = self.calculate_macd(df['close'], macd_fast, macd_slow, macd_signal)
+            
+            # EMA 계산
+            ema_short_line = df['close'].ewm(span=ema_short, adjust=False).mean()
+            ema_long_line = df['close'].ewm(span=ema_long, adjust=False).mean()
+            
+            # MACD 골든크로스/데드크로스 확인
+            macd_cross_up = macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]
+            macd_cross_down = macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]
+            
+            # EMA 골든크로스/데드크로스 확인
+            ema_cross_up = ema_short_line.iloc[-1] > ema_long_line.iloc[-1] and ema_short_line.iloc[-2] <= ema_long_line.iloc[-2]
+            ema_cross_down = ema_short_line.iloc[-1] < ema_long_line.iloc[-1] and ema_short_line.iloc[-2] >= ema_long_line.iloc[-2]
+            
+            # 매수 신호: MACD와 EMA 모두 골든크로스
+            if macd_cross_up and ema_cross_up:
+                return 'buy'
+            # 매도 신호: MACD와 EMA 모두 데드크로스
+            elif macd_cross_down and ema_cross_down:
+                return 'sell'
+                
+            return None
+            
+        except Exception as e:
+            print(f"MACD+EMA 신호 생성 오류: {str(e)}")
+            return None
+
 class StrategyFactory:
     """전략 팩토리 클래스"""
     @staticmethod
@@ -193,6 +251,10 @@ class StrategyFactory:
             return VolumeProfileStrategy()
         elif name == '머신러닝':
             return MLStrategy()
+        elif name == 'BB+RSI':
+            return BbRsiStrategy()
+        elif name == 'MACD+EMA':
+            return MacdEmaStrategy()
         else:
             return None
 
