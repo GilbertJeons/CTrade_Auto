@@ -222,9 +222,9 @@ class StochasticStrategy(BaseStrategy):
             return 'sell'
         return None
 
-class BbRsiStrategy(BaseStrategy):
-    """볼린저밴드 + RSI 전략"""
-    def generate_signal(self, df, bb_period=20, bb_std=2, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
+class BBRSIStrategy(BaseStrategy):
+    """볼린저 밴드와 RSI 복합 전략"""
+    def generate_signal(self, df, bb_period=20, bb_std=2, rsi_period=14, rsi_high=70, rsi_low=30):
         try:
             # 볼린저 밴드 계산
             upper, middle, lower = self.calculate_bollinger_bands(df['close'], bb_period, bb_std)
@@ -235,77 +235,71 @@ class BbRsiStrategy(BaseStrategy):
             current_price = df['close'].iloc[-1]
             current_rsi = rsi.iloc[-1]
             
-            # 매수 신호: RSI가 과매도 구간이고 가격이 하단밴드 아래
-            if current_rsi < rsi_oversold and current_price < lower.iloc[-1]:
-                return 'buy'
-            # 매도 신호: RSI가 과매수 구간이고 가격이 상단밴드 위
-            elif current_rsi > rsi_overbought and current_price > upper.iloc[-1]:
-                return 'sell'
+            # 매매 신호 생성
+            if current_price < lower.iloc[-1] and current_rsi < rsi_low:
+                return 'buy'  # 가격이 하단밴드 아래이고 RSI가 과매도일 때 매수
+            elif current_price > upper.iloc[-1] and current_rsi > rsi_high:
+                return 'sell'  # 가격이 상단밴드 위이고 RSI가 과매수일 때 매도
                 
             return None
             
         except Exception as e:
             print(f"BB+RSI 신호 생성 오류: {str(e)}")
+            traceback.print_exc()
             return None
 
-class MacdEmaStrategy(BaseStrategy):
-    """MACD + EMA 전략"""
-    def generate_signal(self, df, macd_fast=12, macd_slow=26, macd_signal=9, ema_short=9, ema_long=21):
+class MACDEMAStrategy(BaseStrategy):
+    """MACD와 EMA 복합 전략"""
+    def calculate_ema(self, prices, period):
+        return prices.ewm(span=period, adjust=False).mean()
+        
+    def generate_signal(self, df, macd_fast=12, macd_slow=26, macd_signal=9, ema_period=20):
         try:
             # MACD 계산
-            macd, signal = self.calculate_macd(df['close'], macd_fast, macd_slow, macd_signal)
+            macd_line, signal_line = self.calculate_macd(df['close'], macd_fast, macd_slow, macd_signal)
             
             # EMA 계산
-            ema_short_line = df['close'].ewm(span=ema_short, adjust=False).mean()
-            ema_long_line = df['close'].ewm(span=ema_long, adjust=False).mean()
+            ema = self.calculate_ema(df['close'], ema_period)
             
-            # MACD 골든크로스/데드크로스 확인
-            macd_cross_up = macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]
-            macd_cross_down = macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]
+            current_price = df['close'].iloc[-1]
+            current_ema = ema.iloc[-1]
             
-            # EMA 골든크로스/데드크로스 확인
-            ema_cross_up = ema_short_line.iloc[-1] > ema_long_line.iloc[-1] and ema_short_line.iloc[-2] <= ema_long_line.iloc[-2]
-            ema_cross_down = ema_short_line.iloc[-1] < ema_long_line.iloc[-1] and ema_short_line.iloc[-2] >= ema_long_line.iloc[-2]
+            # MACD 골든/데드 크로스 확인
+            macd_cross_up = (macd_line.iloc[-2] <= signal_line.iloc[-2] and 
+                           macd_line.iloc[-1] > signal_line.iloc[-1])
+            macd_cross_down = (macd_line.iloc[-2] >= signal_line.iloc[-2] and 
+                             macd_line.iloc[-1] < signal_line.iloc[-1])
             
-            # 매수 신호: MACD와 EMA 모두 골든크로스
-            if macd_cross_up and ema_cross_up:
-                return 'buy'
-            # 매도 신호: MACD와 EMA 모두 데드크로스
-            elif macd_cross_down and ema_cross_down:
-                return 'sell'
+            # 매매 신호 생성
+            if macd_cross_up and current_price > current_ema:
+                return 'buy'  # MACD 골든크로스이고 가격이 EMA 위일 때 매수
+            elif macd_cross_down and current_price < current_ema:
+                return 'sell'  # MACD 데드크로스이고 가격이 EMA 아래일 때 매도
                 
             return None
             
         except Exception as e:
             print(f"MACD+EMA 신호 생성 오류: {str(e)}")
+            traceback.print_exc()
             return None
 
 class StrategyFactory:
     """전략 팩토리 클래스"""
     @staticmethod
-    def create_strategy(name):
-        if name == 'RSI':
-            return RSIStrategy()
-        elif name == '볼린저밴드':
-            return BollingerBandsStrategy()
-        elif name == 'MACD':
-            return MACDStrategy()
-        elif name == '이동평균선 교차':
-            return MovingAverageStrategy()
-        elif name == '스토캐스틱':
-            return StochasticStrategy()
-        elif name == 'ATR 기반 변동성 돌파':
-            return ATRStrategy()
-        elif name == '거래량 프로파일':
-            return VolumeProfileStrategy()
-        elif name == '머신러닝':
-            return MLStrategy()
-        elif name == 'BB+RSI':
-            return BbRsiStrategy()
-        elif name == 'MACD+EMA':
-            return MacdEmaStrategy()
-        else:
-            return None
+    def create_strategy(strategy_name):
+        strategies = {
+            'RSI': RSIStrategy(),
+            '볼린저밴드': BollingerBandsStrategy(),
+            'MACD': MACDStrategy(),
+            '이동평균선 교차': MovingAverageStrategy(),
+            '스토캐스틱': StochasticStrategy(),
+            'ATR 기반 변동성 돌파': ATRStrategy(),
+            '거래량 프로파일': VolumeProfileStrategy(),
+            '머신러닝': MLStrategy(),
+            'BB+RSI': BBRSIStrategy(),
+            'MACD+EMA': MACDEMAStrategy()
+        }
+        return strategies.get(strategy_name)
 
 class BacktestEngine:
     """백테스팅 엔진 클래스"""
@@ -604,6 +598,23 @@ class OptunaOptimizer:
                     'volume_threshold': trial.suggest_int('volume_threshold', 100, 5000),
                     'volume_zscore_threshold': trial.suggest_float('volume_zscore_threshold', 1.5, 3.0),
                     'window_size': trial.suggest_int('window_size', 10, 50)
+                }
+            elif isinstance(self.strategy, BBRSIStrategy):
+                params = {
+                    'bb_period': trial.suggest_int('bb_period', 10, 50),
+                    'bb_std': trial.suggest_float('bb_std', 1.0, 3.0),
+                    'rsi_period': trial.suggest_int('rsi_period', 5, 30),
+                    'rsi_high': trial.suggest_int('rsi_high', 60, 90),
+                    'rsi_low': trial.suggest_int('rsi_low', 10, 40)
+                }
+            elif isinstance(self.strategy, MACDEMAStrategy):
+                fast_period = trial.suggest_int('macd_fast', 8, 20)
+                slow_period = trial.suggest_int('macd_slow', fast_period + 4, 50)
+                params = {
+                    'macd_fast': fast_period,
+                    'macd_slow': slow_period,
+                    'macd_signal': trial.suggest_int('macd_signal', 5, 20),
+                    'ema_period': trial.suggest_int('ema_period', 10, 50)
                 }
             else:
                 print('지원하지 않는 전략입니다.')

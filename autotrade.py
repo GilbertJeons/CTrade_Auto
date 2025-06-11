@@ -108,7 +108,8 @@ class AutoTradeWindow(QDialog):
         # (AutoTradeWindow __init__ 내)
         strategies = [
             "RSI", "볼린저밴드", "MACD", "이동평균선 교차", "스토캐스틱",
-            "ATR 기반 변동성 돌파", "거래량 프로파일", "머신러닝"
+            "ATR 기반 변동성 돌파", "거래량 프로파일", "머신러닝",
+            "BB+RSI", "MACD+EMA"  # 새로운 전략 추가
         ]
         self.backtestStrategyCombo.clear()
         self.simStrategyCombo.clear()
@@ -491,6 +492,21 @@ class AutoTradeWindow(QDialog):
                     'prediction_period': self.predictionPeriod.value(),
                     'training_period': self.trainingPeriod.value()
                 }
+            elif strategy == 'BB+RSI':
+                params = {
+                    'bb_period': self.bbRsiPeriod.value(),
+                    'bb_std': self.bbRsiStd.value(),
+                    'rsi_period': self.bbRsiRsiPeriod.value(),
+                    'rsi_high': self.bbRsiHigh.value(),
+                    'rsi_low': self.bbRsiLow.value()
+                }
+            elif strategy == 'MACD+EMA':
+                params = {
+                    'macd_fast': self.macdEmaFast.value(),
+                    'macd_slow': self.macdEmaSlow.value(),
+                    'macd_signal': self.macdEmaSignal.value(),
+                    'ema_period': self.macdEmaEmaPeriod.value()
+                }
             # 파라미터 저장 (최소 수정)
             self.last_backtest_params = params
             # 백테스트 엔진을 fee_rate와 함께 새로 생성
@@ -618,6 +634,36 @@ class AutoTradeWindow(QDialog):
         self.backtestParamLayout.addWidget(self.mlGroup, 9, 0, 1, 2)
         self.param_groups['머신러닝'] = self.mlGroup
 
+        # BB+RSI 파라미터 그룹
+        self.bbRsiGroup = self.create_param_group('BB+RSI')
+        self.bbRsiPeriod = QSpinBox(); self.bbRsiPeriod.setRange(5, 100); self.bbRsiPeriod.setValue(20)
+        self.bbRsiStd = QDoubleSpinBox(); self.bbRsiStd.setRange(0.1, 5.0); self.bbRsiStd.setValue(2.0); self.bbRsiStd.setSingleStep(0.1)
+        self.bbRsiRsiPeriod = QSpinBox(); self.bbRsiRsiPeriod.setRange(5, 50); self.bbRsiRsiPeriod.setValue(14)
+        self.bbRsiHigh = QSpinBox(); self.bbRsiHigh.setRange(50, 90); self.bbRsiHigh.setValue(70)
+        self.bbRsiLow = QSpinBox(); self.bbRsiLow.setRange(10, 50); self.bbRsiLow.setValue(30)
+        self.bbRsiGroup.layout().addRow("BB 기간:", self.bbRsiPeriod)
+        self.bbRsiGroup.layout().addRow("BB 표준편차:", self.bbRsiStd)
+        self.bbRsiGroup.layout().addRow("RSI 기간:", self.bbRsiRsiPeriod)
+        self.bbRsiGroup.layout().addRow("RSI 상단:", self.bbRsiHigh)
+        self.bbRsiGroup.layout().addRow("RSI 하단:", self.bbRsiLow)
+        self.bbRsiGroup.hide()
+        self.backtestParamLayout.addWidget(self.bbRsiGroup, 9, 0, 1, 2)
+        self.param_groups['BB+RSI'] = self.bbRsiGroup
+
+        # MACD+EMA 파라미터 그룹
+        self.macdEmaGroup = self.create_param_group('MACD+EMA')
+        self.macdEmaFast = QSpinBox(); self.macdEmaFast.setRange(5, 50); self.macdEmaFast.setValue(12)
+        self.macdEmaSlow = QSpinBox(); self.macdEmaSlow.setRange(10, 100); self.macdEmaSlow.setValue(26)
+        self.macdEmaSignal = QSpinBox(); self.macdEmaSignal.setRange(5, 30); self.macdEmaSignal.setValue(9)
+        self.macdEmaEmaPeriod = QSpinBox(); self.macdEmaEmaPeriod.setRange(5, 50); self.macdEmaEmaPeriod.setValue(20)
+        self.macdEmaGroup.layout().addRow("MACD 단기:", self.macdEmaFast)
+        self.macdEmaGroup.layout().addRow("MACD 장기:", self.macdEmaSlow)
+        self.macdEmaGroup.layout().addRow("MACD 신호:", self.macdEmaSignal)
+        self.macdEmaGroup.layout().addRow("EMA 기간:", self.macdEmaEmaPeriod)
+        self.macdEmaGroup.hide()
+        self.backtestParamLayout.addWidget(self.macdEmaGroup, 10, 0, 1, 2)
+        self.param_groups['MACD+EMA'] = self.macdEmaGroup
+
     def setup_sim_param_groups(self):
         # 시뮬레이션 탭 전용 그룹만 생성 및 addWidget
         self.simFeeGroup = QGroupBox("수수료 설정")
@@ -722,6 +768,34 @@ class AutoTradeWindow(QDialog):
         self.simMLGroup.layout().addRow("학습 기간:", self.simTrainingPeriod)
         self.simMLGroup.hide()
         self.simParamLayout.addWidget(self.simMLGroup)
+
+        # BB+RSI 파라미터 그룹
+        self.simBbRsiGroup = self.create_param_group('BB+RSI')
+        self.simBbRsiPeriod = QSpinBox(); self.simBbRsiPeriod.setRange(5, 100); self.simBbRsiPeriod.setValue(20)
+        self.simBbRsiStd = QDoubleSpinBox(); self.simBbRsiStd.setRange(0.1, 5.0); self.simBbRsiStd.setValue(2.0); self.simBbRsiStd.setSingleStep(0.1)
+        self.simBbRsiRsiPeriod = QSpinBox(); self.simBbRsiRsiPeriod.setRange(5, 50); self.simBbRsiRsiPeriod.setValue(14)
+        self.simBbRsiHigh = QSpinBox(); self.simBbRsiHigh.setRange(50, 90); self.simBbRsiHigh.setValue(70)
+        self.simBbRsiLow = QSpinBox(); self.simBbRsiLow.setRange(10, 50); self.simBbRsiLow.setValue(30)
+        self.simBbRsiGroup.layout().addRow("BB 기간:", self.simBbRsiPeriod)
+        self.simBbRsiGroup.layout().addRow("BB 표준편차:", self.simBbRsiStd)
+        self.simBbRsiGroup.layout().addRow("RSI 기간:", self.simBbRsiRsiPeriod)
+        self.simBbRsiGroup.layout().addRow("RSI 상단:", self.simBbRsiHigh)
+        self.simBbRsiGroup.layout().addRow("RSI 하단:", self.simBbRsiLow)
+        self.simBbRsiGroup.hide()
+        self.simParamLayout.addWidget(self.simBbRsiGroup)
+
+        # MACD+EMA 파라미터 그룹
+        self.simMacdEmaGroup = self.create_param_group('MACD+EMA')
+        self.simMacdEmaFast = QSpinBox(); self.simMacdEmaFast.setRange(5, 50); self.simMacdEmaFast.setValue(12)
+        self.simMacdEmaSlow = QSpinBox(); self.simMacdEmaSlow.setRange(10, 100); self.simMacdEmaSlow.setValue(26)
+        self.simMacdEmaSignal = QSpinBox(); self.simMacdEmaSignal.setRange(5, 30); self.simMacdEmaSignal.setValue(9)
+        self.simMacdEmaEmaPeriod = QSpinBox(); self.simMacdEmaEmaPeriod.setRange(5, 50); self.simMacdEmaEmaPeriod.setValue(20)
+        self.simMacdEmaGroup.layout().addRow("MACD 단기:", self.simMacdEmaFast)
+        self.simMacdEmaGroup.layout().addRow("MACD 장기:", self.simMacdEmaSlow)
+        self.simMacdEmaGroup.layout().addRow("MACD 신호:", self.simMacdEmaSignal)
+        self.simMacdEmaGroup.layout().addRow("EMA 기간:", self.simMacdEmaEmaPeriod)
+        self.simMacdEmaGroup.hide()
+        self.simParamLayout.addWidget(self.simMacdEmaGroup)
 
     def setup_trade_param_groups(self):
         # 자동매매 탭 전용 그룹만 생성 및 addWidget
@@ -828,6 +902,34 @@ class AutoTradeWindow(QDialog):
         self.tradeMLGroup.hide()
         self.tradeParamLayout.addWidget(self.tradeMLGroup)
 
+        # BB+RSI 파라미터 그룹
+        self.tradeBbRsiGroup = self.create_param_group('BB+RSI')
+        self.tradeBbRsiPeriod = QSpinBox(); self.tradeBbRsiPeriod.setRange(5, 100); self.tradeBbRsiPeriod.setValue(20)
+        self.tradeBbRsiStd = QDoubleSpinBox(); self.tradeBbRsiStd.setRange(0.1, 5.0); self.tradeBbRsiStd.setValue(2.0); self.tradeBbRsiStd.setSingleStep(0.1)
+        self.tradeBbRsiRsiPeriod = QSpinBox(); self.tradeBbRsiRsiPeriod.setRange(5, 50); self.tradeBbRsiRsiPeriod.setValue(14)
+        self.tradeBbRsiHigh = QSpinBox(); self.tradeBbRsiHigh.setRange(50, 90); self.tradeBbRsiHigh.setValue(70)
+        self.tradeBbRsiLow = QSpinBox(); self.tradeBbRsiLow.setRange(10, 50); self.tradeBbRsiLow.setValue(30)
+        self.tradeBbRsiGroup.layout().addRow("BB 기간:", self.tradeBbRsiPeriod)
+        self.tradeBbRsiGroup.layout().addRow("BB 표준편차:", self.tradeBbRsiStd)
+        self.tradeBbRsiGroup.layout().addRow("RSI 기간:", self.tradeBbRsiRsiPeriod)
+        self.tradeBbRsiGroup.layout().addRow("RSI 상단:", self.tradeBbRsiHigh)
+        self.tradeBbRsiGroup.layout().addRow("RSI 하단:", self.tradeBbRsiLow)
+        self.tradeBbRsiGroup.hide()
+        self.tradeParamLayout.addWidget(self.tradeBbRsiGroup)
+
+        # MACD+EMA 파라미터 그룹
+        self.tradeMacdEmaGroup = self.create_param_group('MACD+EMA')
+        self.tradeMacdEmaFast = QSpinBox(); self.tradeMacdEmaFast.setRange(5, 50); self.tradeMacdEmaFast.setValue(12)
+        self.tradeMacdEmaSlow = QSpinBox(); self.tradeMacdEmaSlow.setRange(10, 100); self.tradeMacdEmaSlow.setValue(26)
+        self.tradeMacdEmaSignal = QSpinBox(); self.tradeMacdEmaSignal.setRange(5, 30); self.tradeMacdEmaSignal.setValue(9)
+        self.tradeMacdEmaEmaPeriod = QSpinBox(); self.tradeMacdEmaEmaPeriod.setRange(5, 50); self.tradeMacdEmaEmaPeriod.setValue(20)
+        self.tradeMacdEmaGroup.layout().addRow("MACD 단기:", self.tradeMacdEmaFast)
+        self.tradeMacdEmaGroup.layout().addRow("MACD 장기:", self.tradeMacdEmaSlow)
+        self.tradeMacdEmaGroup.layout().addRow("MACD 신호:", self.tradeMacdEmaSignal)
+        self.tradeMacdEmaGroup.layout().addRow("EMA 기간:", self.tradeMacdEmaEmaPeriod)
+        self.tradeMacdEmaGroup.hide()
+        self.tradeParamLayout.addWidget(self.tradeMacdEmaGroup)
+
     def create_param_group(self, name=''):
         """파라미터 그룹 생성"""
         group = QGroupBox(name)
@@ -917,6 +1019,21 @@ class AutoTradeWindow(QDialog):
             params = {
                 'prediction_period': self.simPredictionPeriod.value(),
                 'training_period': self.simTrainingPeriod.value()
+            }
+        elif strategy == 'BB+RSI':
+            params = {
+                'bb_period': self.bbRsiPeriod.value(),
+                'bb_std': self.bbRsiStd.value(),
+                'rsi_period': self.bbRsiRsiPeriod.value(),
+                'rsi_high': self.bbRsiHigh.value(),
+                'rsi_low': self.bbRsiLow.value()
+            }
+        elif strategy == 'MACD+EMA':
+            params = {
+                'macd_fast': self.macdEmaFast.value(),
+                'macd_slow': self.macdEmaSlow.value(),
+                'macd_signal': self.macdEmaSignal.value(),
+                'ema_period': self.macdEmaEmaPeriod.value()
             }
         # 스레드로 외부 run_simulation 실행
         self.simulation_thread = threading.Thread(
@@ -1045,6 +1162,21 @@ class AutoTradeWindow(QDialog):
             params = {
                 'prediction_period': self.tradePredictionPeriod.value(),
                 'training_period': self.tradeTrainingPeriod.value()
+            }
+        elif strategy == 'BB+RSI':
+            params = {
+                'bb_period': self.bbRsiPeriod.value(),
+                'bb_std': self.bbRsiStd.value(),
+                'rsi_period': self.bbRsiRsiPeriod.value(),
+                'rsi_high': self.bbRsiHigh.value(),
+                'rsi_low': self.bbRsiLow.value()
+            }
+        elif strategy == 'MACD+EMA':
+            params = {
+                'macd_fast': self.macdEmaFast.value(),
+                'macd_slow': self.macdEmaSlow.value(),
+                'macd_signal': self.macdEmaSignal.value(),
+                'ema_period': self.macdEmaEmaPeriod.value()
             }
                 
         # 스레드로 외부 run_simulation 실행
@@ -1186,12 +1318,13 @@ class AutoTradeWindow(QDialog):
         # 모든 파라미터 그룹 리스트
         all_groups = [
             self.rsiGroup, self.bbGroup, self.macdGroup, self.maGroup,
-            self.stochGroup, self.atrGroup
+            self.stochGroup, self.atrGroup, self.volumeProfileGroup, self.mlGroup,
+            self.bbRsiGroup, self.macdEmaGroup
         ]
-        if hasattr(self, 'volumeProfileGroup'):
-            all_groups.append(self.volumeProfileGroup)
-        if hasattr(self, 'mlGroup'):
-            all_groups.append(self.mlGroup)
+        # if hasattr(self, 'volumeProfileGroup'):
+        #     all_groups.append(self.volumeProfileGroup)
+        # if hasattr(self, 'mlGroup'):
+        #     all_groups.append(self.mlGroup)
             
         # 현재 레이아웃에서 모든 그룹 제거 (빈 공간 방지)
         for group in all_groups:
@@ -1215,58 +1348,92 @@ class AutoTradeWindow(QDialog):
             group_to_show = self.volumeProfileGroup
         elif strategy == "머신러닝" and hasattr(self, 'mlGroup'):
             group_to_show = self.mlGroup
+        elif strategy == "BB+RSI":
+            group_to_show = self.bbRsiGroup
+        elif strategy == "MACD+EMA":
+            group_to_show = self.macdEmaGroup
             
         if group_to_show is not None:
             group_to_show.show()
             self.backtestParamLayout.addWidget(group_to_show, 2, 0, 1, 2)  # 수수료 그룹 아래에 배치
 
     def update_sim_param_groups_visibility(self, strategy):
-        groups = [
+        # 모든 파라미터 그룹 리스트
+        all_groups = [
             self.simRsiGroup, self.simBbGroup, self.simMacdGroup, self.simMaGroup,
-            self.simStochGroup, self.simAtrGroup, self.simVolumeProfileGroup, self.simMLGroup
+            self.simStochGroup, self.simAtrGroup, self.simVolumeProfileGroup, self.simMLGroup,
+            self.simBbRsiGroup, self.simMacdEmaGroup
         ]
-        for group in groups:
+        
+        # 현재 레이아웃에서 모든 그룹 제거 (빈 공간 방지)
+        for group in all_groups:
             group.hide()
+            
+        # 선택된 전략에 맞는 그룹만 다시 레이아웃에 추가
+        group_to_show = None
         if strategy == "RSI":
-            self.simRsiGroup.show()
+            group_to_show = self.simRsiGroup
         elif strategy == "볼린저밴드":
-            self.simBbGroup.show()
+            group_to_show = self.simBbGroup
         elif strategy == "MACD":
-            self.simMacdGroup.show()
+            group_to_show = self.simMacdGroup
         elif strategy == "이동평균선 교차":
-            self.simMaGroup.show()
+            group_to_show = self.simMaGroup
         elif strategy == "스토캐스틱":
-            self.simStochGroup.show()
+            group_to_show = self.simStochGroup
         elif strategy == "ATR 기반 변동성 돌파":
-            self.simAtrGroup.show()
-        elif strategy == "거래량 프로파일":
-            self.simVolumeProfileGroup.show()
-        elif strategy == "머신러닝":
-            self.simMLGroup.show()
+            group_to_show = self.simAtrGroup
+        elif strategy == "거래량 프로파일" and hasattr(self, 'simVolumeProfileGroup'):
+            group_to_show = self.simVolumeProfileGroup
+        elif strategy == "머신러닝" and hasattr(self, 'simMLGroup'):
+            group_to_show = self.simMLGroup
+        elif strategy == "BB+RSI":
+            group_to_show = self.simBbRsiGroup
+        elif strategy == "MACD+EMA":
+            group_to_show = self.simMacdEmaGroup
+            
+        if group_to_show is not None:
+            group_to_show.show()
+            self.simParamLayout.addWidget(group_to_show)
 
     def update_trade_param_groups_visibility(self, strategy):
-        groups = [
+        # 모든 파라미터 그룹 리스트
+        all_groups = [
             self.tradeRsiGroup, self.tradeBbGroup, self.tradeMacdGroup, self.tradeMaGroup,
-            self.tradeStochGroup, self.tradeAtrGroup, self.tradeVolumeProfileGroup, self.tradeMLGroup
+            self.tradeStochGroup, self.tradeAtrGroup, self.tradeVolumeProfileGroup, self.tradeMLGroup,
+            self.tradeBbRsiGroup, self.tradeMacdEmaGroup
         ]
-        for group in groups:
+        
+        # 현재 레이아웃에서 모든 그룹 제거 (빈 공간 방지)
+        for group in all_groups:
             group.hide()
+            
+        # 선택된 전략에 맞는 그룹만 다시 레이아웃에 추가
+        group_to_show = None
         if strategy == "RSI":
-            self.tradeRsiGroup.show()
+            group_to_show = self.tradeRsiGroup
         elif strategy == "볼린저밴드":
-            self.tradeBbGroup.show()
+            group_to_show = self.tradeBbGroup
         elif strategy == "MACD":
-            self.tradeMacdGroup.show()
+            group_to_show = self.tradeMacdGroup
         elif strategy == "이동평균선 교차":
-            self.tradeMaGroup.show()
+            group_to_show = self.tradeMaGroup
         elif strategy == "스토캐스틱":
-            self.tradeStochGroup.show()
+            group_to_show = self.tradeStochGroup
         elif strategy == "ATR 기반 변동성 돌파":
-            self.tradeAtrGroup.show()
-        elif strategy == "거래량 프로파일":
-            self.tradeVolumeProfileGroup.show()
-        elif strategy == "머신러닝":
-            self.tradeMLGroup.show()
+            group_to_show = self.tradeAtrGroup
+        elif strategy == "거래량 프로파일" and hasattr(self, 'tradeVolumeProfileGroup'):
+            group_to_show = self.tradeVolumeProfileGroup
+        elif strategy == "머신러닝" and hasattr(self, 'tradeMLGroup'):
+            group_to_show = self.tradeMLGroup
+        elif strategy == "BB+RSI":
+            group_to_show = self.tradeBbRsiGroup
+        elif strategy == "MACD+EMA":
+            group_to_show = self.tradeMacdEmaGroup
+            
+        if group_to_show is not None:
+            group_to_show.show()
+            self.tradeParamLayout.addWidget(group_to_show)
 
     # --- 콤보박스 변경 시 연결 함수도 분리 ---
     def update_param_groups(self, strategy):
