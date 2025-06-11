@@ -76,6 +76,9 @@ class VolumeProfileStrategy(BaseStrategy):
         
     def calculate_volume_profile(self, df, num_bins=10):
         price_range = df['high'].max() - df['low'].min()
+        if price_range == 0:  # 가격 범위가 0인 경우 처리
+            return None, None
+            
         bin_size = price_range / num_bins
         bins = np.arange(df['low'].min(), df['high'].max() + bin_size, bin_size)
         volume_profile = np.zeros(num_bins)
@@ -91,24 +94,70 @@ class VolumeProfileStrategy(BaseStrategy):
         
     def generate_signal(self, df, num_bins=10, volume_threshold=1000, volume_zscore_threshold=2.0, window_size=20):
         try:
+            if len(df) < window_size + 1:
+                return None
+                
+            # VWAP 계산
             vwap = self.calculate_vwap(df)
             current_vwap = vwap.iloc[-1]
             current_price = df['close'].iloc[-1]
             current_volume = df['volume'].iloc[-1]
             
+            # 거래량 이동평균과 표준편차 계산
             volume_ma = df['volume'].rolling(window=window_size).mean()
             volume_std = df['volume'].rolling(window=window_size).std()
-            volume_zscore = (current_volume - volume_ma.iloc[-1]) / volume_std.iloc[-1]
             
-            if current_price < current_vwap and volume_zscore > volume_zscore_threshold and current_volume > volume_threshold:
-                return 'buy'
-            elif current_price > current_vwap and volume_zscore > volume_zscore_threshold and current_volume > volume_threshold:
-                return 'sell'
+            # 거래량 Z-score 계산 (표준편차가 0인 경우 처리)
+            if volume_std.iloc[-1] > 0:
+                volume_zscore = (current_volume - volume_ma.iloc[-1]) / volume_std.iloc[-1]
+            else:
+                volume_zscore = 0
                 
+            # 거래량 프로파일 계산 (최근 window_size 기간 동안)
+            recent_df = df.tail(window_size)
+            bins, volume_profile = self.calculate_volume_profile(recent_df, num_bins)
+            if bins is None or volume_profile is None:
+                return None
+                
+            # 현재 가격이 속한 구간 찾기
+            price_range = recent_df['high'].max() - recent_df['low'].min()
+            if price_range == 0:
+                return None
+                
+            bin_size = price_range / num_bins
+            current_bin = int((current_price - recent_df['low'].min()) / bin_size)
+            if not (0 <= current_bin < num_bins):
+                return None
+                
+            # 거래량 프로파일 분석
+            mean_volume = np.mean(volume_profile)
+            current_bin_volume = volume_profile[current_bin]
+            volume_ratio = current_bin_volume / mean_volume if mean_volume > 0 else 0
+            
+            # 가격 모멘텀 계산
+            price_change = df['close'].pct_change()
+            price_momentum = price_change.rolling(window=5).mean().iloc[-1]
+            
+            # 매매 신호 생성 (조건 완화)
+            # 1. 현재 거래량이 이동평균보다 높음
+            # 2. 현재 구간의 거래량이 평균보다 높음
+            # 3. 가격이 VWAP를 기준으로 상/하향 이탈
+            volume_condition = current_volume > volume_ma.iloc[-1] * 0.8  # 거래량 조건 완화
+            profile_condition = volume_ratio > 0.8  # 거래량 프로파일 조건 완화
+            
+            if volume_condition and profile_condition:
+                vwap_distance = abs(current_price - current_vwap) / current_vwap
+                if vwap_distance > 0.001:  # 0.1% 이상 이탈
+                    if current_price < current_vwap and price_momentum < 0:
+                        return 'buy'  # 하락 추세에서 매수
+                    elif current_price > current_vwap and price_momentum > 0:
+                        return 'sell'  # 상승 추세에서 매도
+                    
             return None
             
         except Exception as e:
             print(f"거래량 신호 생성 오류: {str(e)}")
+            traceback.print_exc()
             return None
 
 class MLStrategy(BaseStrategy):
@@ -416,230 +465,7 @@ class BacktestEngine:
             print(f"백테스팅 오류: {str(e)}")
             traceback.print_exc()
             return None
-
-    def backtest_atr(self, params, df, interval, initial_capital):
-        """ATR 기반 변동성 돌파 전략 백테스트"""
-        try:
-            if df is None or len(df) < max(params['period'], params['trend_period']):
-                return None
-                
-            strategy = ATRStrategy()
-            trades = []
-            position = None
-            entry_price = 0
-            entry_time = None
-            position_size = 1.0
-            stop_loss = None
-            
-            for i in range(max(params['period'], params['trend_period']), len(df)):
-                current_data = df.iloc[:i+1]
-                signal = strategy.generate_signal(
-                    current_data,
-                    period=params['period'],
-                    multiplier=params['multiplier'],
-                    trend_period=params['trend_period'],
-                    stop_loss_multiplier=params['stop_loss_multiplier'],
-                    position_size_multiplier=params['position_size_multiplier']
-                )
-                
-                current_price = df['close'].iloc[i]
-                
-                # 스탑로스 체크
-                if position == 'long' and stop_loss is not None:
-                    if current_price <= stop_loss:
-                        # 스탑로스로 청산
-                        exit_price = current_price
-                        profit = (exit_price - entry_price) * (initial_capital * position_size / entry_price)
-                        profit -= self.calculate_fee(initial_capital * position_size / entry_price, entry_price)
-                        profit -= self.calculate_fee(initial_capital * position_size / entry_price, exit_price)
-                        
-                        trades.append({
-                            'date': entry_time,
-                            'type': 'buy',
-                            'price': entry_price,
-                            'exit_date': df.index[i],
-                            'exit_price': exit_price,
-                            'profit': profit,
-                            'profit_rate': (profit / (initial_capital * position_size / entry_price * entry_price)) * 100,
-                            'exit_type': 'stop_loss'
-                        })
-                        
-                        position = None
-                        position_size = 1.0
-                        stop_loss = None
-                        continue
-                
-                if signal == 'buy' and position is None:
-                    position = 'long'
-                    entry_price = current_price
-                    entry_time = df.index[i]
-                    position_size = strategy.position_size
-                    stop_loss = strategy.stop_loss
-                    
-                elif signal == 'sell' and position == 'long':
-                    exit_price = current_price
-                    profit = (exit_price - entry_price) * (initial_capital * position_size / entry_price)
-                    profit -= self.calculate_fee(initial_capital * position_size / entry_price, entry_price)
-                    profit -= self.calculate_fee(initial_capital * position_size / entry_price, exit_price)
-                    
-                    trades.append({
-                        'date': entry_time,
-                        'type': 'buy',
-                        'price': entry_price,
-                        'exit_date': df.index[i],
-                        'exit_price': exit_price,
-                        'profit': profit,
-                        'profit_rate': (profit / (initial_capital * position_size / entry_price * entry_price)) * 100,
-                        'exit_type': 'signal'
-                    })
-                    
-                    position = None
-                    position_size = 1.0
-                    stop_loss = None
-            
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
-        except Exception as e:
-            print(f"ATR 백테스팅 오류: {str(e)}")
-            traceback.print_exc()
-            return None
-
-    def backtest_ml(self, params, df, interval, initial_capital):
-        """머신러닝 전략 백테스트"""
-        try:
-            if df is None or len(df) < 30:
-                return None
-                
-            strategy = MLStrategy()
-            trades = []
-            position = None
-            entry_price = 0
-            entry_time = None
-            
-            for i in range(30, len(df)):
-                current_data = df.iloc[:i+1]
-                signal = strategy.generate_signal(current_data)
-                
-                if signal == 'buy' and position is None:
-                    position = 'long'
-                    entry_price = df['close'].iloc[i]
-                    entry_time = df.index[i]
-                elif signal == 'sell' and position == 'long':
-                    exit_price = df['close'].iloc[i]
-                    profit = (exit_price - entry_price) * (initial_capital / entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, exit_price)
-                    
-                    trades.append({
-                        'date': entry_time,
-                        'type': 'buy',
-                        'price': entry_price,
-                        'exit_date': df.index[i],
-                        'exit_price': exit_price,
-                        'profit': profit,
-                        'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
-                    })
-                    
-                    position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
-        except Exception as e:
-            print(f"ML 백테스팅 오류: {str(e)}")
-            traceback.print_exc()
-            return None
-
-    def backtest_volume_profile(self, params, df, interval, initial_capital):
-        """거래량 프로파일 전략 백테스트"""
-        try:
-            if df is None or len(df) < 30:
-                return None
-                
-            strategy = VolumeProfileStrategy()
-            trades = []
-            position = None
-            entry_price = 0
-            entry_time = None
-            
-            for i in range(30, len(df)):
-                current_data = df.iloc[:i+1]
-                signal = strategy.generate_signal(current_data, **params)
-                
-                if signal == 'buy' and position is None:
-                    position = 'long'
-                    entry_price = df['close'].iloc[i]
-                    entry_time = df.index[i]
-                elif signal == 'sell' and position == 'long':
-                    exit_price = df['close'].iloc[i]
-                    profit = (exit_price - entry_price) * (initial_capital / entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, entry_price)
-                    profit -= self.calculate_fee(initial_capital / entry_price, exit_price)
-                    
-                    trades.append({
-                        'date': entry_time,
-                        'type': 'buy',
-                        'price': entry_price,
-                        'exit_date': df.index[i],
-                        'exit_price': exit_price,
-                        'profit': profit,
-                        'profit_rate': (profit / (initial_capital / entry_price * entry_price)) * 100
-                    })
-                    
-                    position = None
-                    
-            return self.calculate_backtest_results(df, trades, initial_capital)
-            
-        except Exception as e:
-            print(f"Volume Profile 백테스팅 오류: {str(e)}")
-            traceback.print_exc()
-            return None
-
-    # def _fetch_historical_data(self, start_date, end_date, interval):
-    #     """과거 데이터 가져오기"""
-    #     try:
-    #         # interval 매핑
-    #         interval_map = {
-    #             "1분봉": "minute1",
-    #             "3분봉": "minute3",
-    #             "5분봉": "minute5",
-    #             "15분봉": "minute15",
-    #             "30분봉": "minute30",
-    #             "1시간봉": "minute60",
-    #             "4시간봉": "minute240",
-    #             "일봉": "day",
-    #             "주봉": "week",
-    #             "월봉": "month"
-    #         }
-            
-    #         # interval 변환
-    #         upbit_interval = interval_map.get(interval, interval)
-            
-    #         # 시작일과 종료일을 datetime으로 변환
-    #         start_datetime = datetime.combine(start_date, datetime.min.time())
-    #         end_datetime = datetime.combine(end_date, datetime.max.time())
-            
-    #         print(f"데이터 요청: {start_datetime} ~ {end_datetime}, interval={upbit_interval}")
-            
-    #         # 데이터 가져오기
-    #         df = pyupbit.get_ohlcv_from(
-    #             ticker="KRW-BTC",
-    #             interval=upbit_interval,
-    #             fromDatetime=start_datetime,
-    #             to=end_datetime
-    #         )
-            
-    #         if df is None or df.empty:
-    #             print("데이터가 없습니다.")
-    #             return None
-            
-    #         print(f"가져온 데이터: {len(df)}개")
-    #         return df
-            
-    #     except Exception as e:
-    #         print(f"데이터 가져오기 오류: {str(e)}")
-    #         traceback.print_exc()
-    #         return None
-
+     
 class ATRStrategy(BaseStrategy):
     def __init__(self):
         super().__init__()

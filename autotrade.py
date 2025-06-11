@@ -110,10 +110,10 @@ class AutoTradeWindow(QDialog):
             "RSI", "볼린저밴드", "MACD", "이동평균선 교차", "스토캐스틱",
             "ATR 기반 변동성 돌파", "거래량 프로파일", "머신러닝"
         ]
-        self.strategyCombo.clear()
+        self.backtestStrategyCombo.clear()
         self.simStrategyCombo.clear()
         self.tradeStrategyCombo.clear()
-        self.strategyCombo.addItems(strategies)
+        self.backtestStrategyCombo.addItems(strategies)
         self.simStrategyCombo.addItems(strategies)
         self.tradeStrategyCombo.addItems(strategies)
 
@@ -121,7 +121,7 @@ class AutoTradeWindow(QDialog):
         self.strategyDescriptionLabel = self.findChild(QLabel, 'strategyDescriptionLabel')
 
         # 각 탭의 현재 선택된 전략에 맞는 파라미터 그룹을 표시 (초기화)
-        self.update_backtest_param_groups_visibility(self.strategyCombo.currentText())
+        self.update_backtest_param_groups_visibility(self.backtestStrategyCombo.currentText())
         self.update_sim_param_groups_visibility(self.simStrategyCombo.currentText())
         self.update_trade_param_groups_visibility(self.tradeStrategyCombo.currentText())
         
@@ -130,7 +130,9 @@ class AutoTradeWindow(QDialog):
         today = QDate.currentDate()
         self.dataStartDate.setDate(today)
         self.dataEndDate.setDate(today)
-        self.backtestStartDate.setDate(today)
+        # 백테스팅 날짜 초기화
+        # self.backtestStartDate.setDate(today.addDays(-30))  # 기본값: 30일 전
+        self.backtestStartDate.setDate(today)  # 기본값: 30일 전
         self.backtestEndDate.setDate(today)
         
         # 초기 거래소 선택에 따라 날짜 입력란 상태 설정
@@ -195,8 +197,8 @@ class AutoTradeWindow(QDialog):
         self.dataIntervalCombo.currentTextChanged.connect(self.on_interval_changed)
         # 백테스팅 탭
         self.backtestStartBtn.clicked.connect(self.start_backtest)
-        self.strategyCombo.currentTextChanged.connect(lambda text: self.update_param_groups(text))
-        self.strategyCombo.currentTextChanged.connect(self.update_strategy_description)
+        self.backtestStrategyCombo.currentTextChanged.connect(lambda text: self.update_param_groups(text))
+        self.backtestStrategyCombo.currentTextChanged.connect(self.update_strategy_description)
         # 시뮬레이션 탭
         self.simStartBtn.clicked.connect(self.toggle_simulation)
         self.simStrategyCombo.currentTextChanged.connect(lambda text: self.update_sim_param_groups(text))
@@ -409,22 +411,12 @@ class AutoTradeWindow(QDialog):
             ax2.set_xlabel('날짜')
             ax2.set_ylabel('거래량')
             ax2.grid(True, alpha=0.3)
-            
-            # x축 포맷 설정
-            for ax in [ax1, ax2]:
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
-                
+            ax2.legend()
+
+            # 차트를 UI에 추가
             figure.tight_layout()
-            canvas.draw()
-            
-            # 닫기 버튼
-            close_btn = QPushButton('닫기')
-            close_btn.clicked.connect(chart_window.close)
-            layout.addWidget(close_btn)
-            
             chart_window.setLayout(layout)
-            chart_window.exec_()
+            chart_window.show()
             
             print("차트 생성 완료")
             
@@ -436,7 +428,7 @@ class AutoTradeWindow(QDialog):
         """백테스트 시작"""
         try:
             # 파라미터 가져오기
-            strategy = self.strategyCombo.currentText()
+            strategy = self.backtestStrategyCombo.currentText()
             start_date = self.backtestStartDate.date().toPyDate()
             end_date = self.backtestEndDate.date().toPyDate()
             interval = self.backtestIntervalCombo.currentText()
@@ -502,15 +494,8 @@ class AutoTradeWindow(QDialog):
             # 파라미터 저장 (최소 수정)
             self.last_backtest_params = params
             # 백테스트 엔진을 fee_rate와 함께 새로 생성
-            engine = BacktestEngine(fee_rate=fee_rate)
-            if strategy == 'ATR 기반 변동성 돌파':
-                results = engine.backtest_atr(params, df, interval, initial_capital)
-            elif strategy == '머신러닝':
-                results = engine.backtest_ml(params, df, interval, initial_capital)
-            elif strategy == '거래량 프로파일':
-                results = engine.backtest_volume_profile(params, df, interval, initial_capital)
-            else:
-                results = engine.backtest_strategy(strategy, params, df, interval, initial_capital)
+            engine = BacktestEngine(fee_rate=fee_rate)            
+            results = engine.backtest_strategy(strategy, params, df, interval, initial_capital)
             if results is None:
                 QMessageBox.warning(self, "오류", "백테스트 실행 중 오류가 발생했습니다.")
                 return
@@ -520,43 +505,118 @@ class AutoTradeWindow(QDialog):
             traceback.print_exc()
     
     def setup_param_groups(self):
-        # UI에 이미 존재하는 파라미터 그룹/위젯을 findChild로 연결
-        self.feeGroup = self.findChild(QGroupBox, 'feeGroup')
-        self.feeRateSpinBox = self.findChild(QDoubleSpinBox, 'feeRateSpinBox')
-        self.rsiGroup = self.findChild(QGroupBox, 'rsiGroup')
-        self.rsiPeriod = self.findChild(QSpinBox, 'rsiPeriod')
-        self.rsiOverbought = self.findChild(QSpinBox, 'rsiOverbought')
-        self.rsiOversold = self.findChild(QSpinBox, 'rsiOversold')
-        self.bbGroup = self.findChild(QGroupBox, 'bbGroup')
-        self.bbPeriod = self.findChild(QSpinBox, 'bbPeriod')
-        self.bbStd = self.findChild(QDoubleSpinBox, 'bbStd')
-        self.macdGroup = self.findChild(QGroupBox, 'macdGroup')
-        self.macdFastPeriod = self.findChild(QSpinBox, 'macdFastPeriod')
-        self.macdSlowPeriod = self.findChild(QSpinBox, 'macdSlowPeriod')
-        self.macdSignalPeriod = self.findChild(QSpinBox, 'macdSignalPeriod')
-        self.maGroup = self.findChild(QGroupBox, 'maGroup')
-        self.maShortPeriod = self.findChild(QSpinBox, 'maShortPeriod')
-        self.maLongPeriod = self.findChild(QSpinBox, 'maLongPeriod')
-        self.stochGroup = self.findChild(QGroupBox, 'stochGroup')
-        self.stochPeriod = self.findChild(QSpinBox, 'stochPeriod')
-        self.stochKPeriod = self.findChild(QSpinBox, 'stochKPeriod')
-        self.stochDPeriod = self.findChild(QSpinBox, 'stochDPeriod')
-        self.stochOverbought = self.findChild(QSpinBox, 'stochOverbought')
-        self.stochOversold = self.findChild(QSpinBox, 'stochOversold')
-        self.atrGroup = self.findChild(QGroupBox, 'atrGroup')
-        self.atrPeriod = self.findChild(QSpinBox, 'atrPeriod')
-        self.atrMultiplier = self.findChild(QDoubleSpinBox, 'atrMultiplier')
-        self.trendPeriod = self.findChild(QSpinBox, 'trendPeriod')
-        self.stopLossMultiplier = self.findChild(QDoubleSpinBox, 'stopLossMultiplier')
-        self.positionSizeMultiplier = self.findChild(QDoubleSpinBox, 'positionSizeMultiplier')
-        self.volumeProfileGroup = self.findChild(QGroupBox, 'volumeProfileGroup')
-        self.numBins = self.findChild(QSpinBox, 'numBins')
-        self.volumeThreshold = self.findChild(QSpinBox, 'volumeThreshold')
-        self.volumeZscoreThreshold = self.findChild(QDoubleSpinBox, 'volumeZscoreThreshold')
-        self.windowSize = self.findChild(QSpinBox, 'windowSize')
-        self.mlGroup = self.findChild(QGroupBox, 'mlGroup')
-        self.predictionPeriod = self.findChild(QSpinBox, 'predictionPeriod')
-        self.trainingPeriod = self.findChild(QSpinBox, 'trainingPeriod')
+        """백테스팅 파라미터 그룹 설정"""
+        # 파라미터 그룹 딕셔너리 초기화
+        self.param_groups = {}
+
+        # 수수료 그룹
+        self.feeGroup = self.create_param_group("수수료 설정")
+        self.feeRateSpinBox = QDoubleSpinBox()
+        self.feeRateSpinBox.setRange(0.01, 20.0)
+        self.feeRateSpinBox.setSingleStep(0.005)
+        self.feeRateSpinBox.setDecimals(3)
+        self.feeRateSpinBox.setValue(0.04)
+        self.feeGroup.layout().addRow("수수료율(%):", self.feeRateSpinBox)
+        self.backtestParamLayout.addWidget(self.feeGroup, 1, 0, 1, 2)
+        self.param_groups['수수료 설정'] = self.feeGroup
+
+        # RSI 파라미터 그룹
+        self.rsiGroup = self.create_param_group('RSI')
+        self.rsiPeriod = QSpinBox(); self.rsiPeriod.setRange(1, 100); self.rsiPeriod.setValue(14)
+        self.rsiOverbought = QSpinBox(); self.rsiOverbought.setRange(50, 100); self.rsiOverbought.setValue(70)
+        self.rsiOversold = QSpinBox(); self.rsiOversold.setRange(0, 50); self.rsiOversold.setValue(30)
+        self.rsiGroup.layout().addRow("기간:", self.rsiPeriod)
+        self.rsiGroup.layout().addRow("과매수:", self.rsiOverbought)
+        self.rsiGroup.layout().addRow("과매도:", self.rsiOversold)
+        self.rsiGroup.hide()
+        self.backtestParamLayout.addWidget(self.rsiGroup, 2, 0, 1, 2)
+        self.param_groups['RSI'] = self.rsiGroup
+
+        # 볼린저밴드 파라미터 그룹
+        self.bbGroup = self.create_param_group('볼린저밴드')
+        self.bbPeriod = QSpinBox(); self.bbPeriod.setRange(1, 100); self.bbPeriod.setValue(20)
+        self.bbStd = QDoubleSpinBox(); self.bbStd.setRange(0.1, 5.0); self.bbStd.setValue(2.0); self.bbStd.setSingleStep(0.1)
+        self.bbGroup.layout().addRow("기간:", self.bbPeriod)
+        self.bbGroup.layout().addRow("표준편차:", self.bbStd)
+        self.bbGroup.hide()
+        self.backtestParamLayout.addWidget(self.bbGroup, 3, 0, 1, 2)
+        self.param_groups['볼린저밴드'] = self.bbGroup
+
+        # MACD 파라미터 그룹
+        self.macdGroup = self.create_param_group('MACD')
+        self.macdFastPeriod = QSpinBox(); self.macdFastPeriod.setRange(1, 100); self.macdFastPeriod.setValue(12)
+        self.macdSlowPeriod = QSpinBox(); self.macdSlowPeriod.setRange(1, 100); self.macdSlowPeriod.setValue(26)
+        self.macdSignalPeriod = QSpinBox(); self.macdSignalPeriod.setRange(1, 100); self.macdSignalPeriod.setValue(9)
+        self.macdGroup.layout().addRow("빠른 기간:", self.macdFastPeriod)
+        self.macdGroup.layout().addRow("느린 기간:", self.macdSlowPeriod)
+        self.macdGroup.layout().addRow("시그널 기간:", self.macdSignalPeriod)
+        self.macdGroup.hide()
+        self.backtestParamLayout.addWidget(self.macdGroup, 4, 0, 1, 2)
+        self.param_groups['MACD'] = self.macdGroup
+
+        # 이동평균선 파라미터 그룹
+        self.maGroup = self.create_param_group('이동평균선 교차')
+        self.maShortPeriod = QSpinBox(); self.maShortPeriod.setRange(1, 100); self.maShortPeriod.setValue(5)
+        self.maLongPeriod = QSpinBox(); self.maLongPeriod.setRange(1, 200); self.maLongPeriod.setValue(20)
+        self.maGroup.layout().addRow("단기 기간:", self.maShortPeriod)
+        self.maGroup.layout().addRow("장기 기간:", self.maLongPeriod)
+        self.maGroup.hide()
+        self.backtestParamLayout.addWidget(self.maGroup, 5, 0, 1, 2)
+        self.param_groups['이동평균선 교차'] = self.maGroup
+
+        # 스토캐스틱 파라미터 그룹
+        self.stochGroup = self.create_param_group('스토캐스틱')
+        self.stochKPeriod = QSpinBox(); self.stochKPeriod.setRange(1, 100); self.stochKPeriod.setValue(14)
+        self.stochDPeriod = QSpinBox(); self.stochDPeriod.setRange(1, 100); self.stochDPeriod.setValue(3)
+        self.stochOverbought = QSpinBox();
+        self.stochOversold = QSpinBox(); self.stochOversold.setRange(0, 50); self.stochOversold.setValue(20)
+        self.stochGroup.layout().addRow("K 기간:", self.stochKPeriod)
+        self.stochGroup.layout().addRow("D 기간:", self.stochDPeriod)
+        self.stochGroup.layout().addRow("과매수:", self.stochOverbought)
+        self.stochGroup.layout().addRow("과매도:", self.stochOversold)
+        self.stochGroup.hide()
+        self.backtestParamLayout.addWidget(self.stochGroup, 6, 0, 1, 2)
+        self.param_groups['스토캐스틱'] = self.stochGroup
+
+        # ATR 파라미터 그룹
+        self.atrGroup = self.create_param_group('ATR 기반 변동성 돌파')
+        self.atrPeriod = QSpinBox(); self.atrPeriod.setRange(1, 100); self.atrPeriod.setValue(14)
+        self.atrMultiplier = QDoubleSpinBox(); self.atrMultiplier.setRange(0.1, 5.0); self.atrMultiplier.setValue(2.0); self.atrMultiplier.setSingleStep(0.1)
+        self.trendPeriod = QSpinBox(); self.trendPeriod.setRange(1, 100); self.trendPeriod.setValue(20)
+        self.stopLossMultiplier = QDoubleSpinBox(); self.stopLossMultiplier.setRange(0.1, 10.0); self.stopLossMultiplier.setValue(1.5); self.stopLossMultiplier.setSingleStep(0.1)
+        self.positionSizeMultiplier = QDoubleSpinBox(); self.positionSizeMultiplier.setRange(0.1, 10.0); self.positionSizeMultiplier.setValue(1.0); self.positionSizeMultiplier.setSingleStep(0.1)
+        self.atrGroup.layout().addRow("기간:", self.atrPeriod)
+        self.atrGroup.layout().addRow("승수:", self.atrMultiplier)
+        self.atrGroup.layout().addRow("추세 기간:", self.trendPeriod)
+        self.atrGroup.layout().addRow("스탑로스 승수:", self.stopLossMultiplier)
+        self.atrGroup.layout().addRow("포지션 사이징 승수:", self.positionSizeMultiplier)
+        self.atrGroup.hide()
+        self.backtestParamLayout.addWidget(self.atrGroup, 7, 0, 1, 2)
+        self.param_groups['ATR 기반 변동성 돌파'] = self.atrGroup
+
+        # 거래량 프로파일 파라미터 그룹
+        self.volumeProfileGroup = self.create_param_group('거래량 프로파일')
+        self.numBins = QSpinBox(); self.numBins.setRange(5, 50); self.numBins.setValue(10)
+        self.volumeThreshold = QSpinBox(); self.volumeThreshold.setRange(100, 1000000); self.volumeThreshold.setValue(5000)
+        self.volumeZscoreThreshold = QDoubleSpinBox(); self.volumeZscoreThreshold.setRange(0.5, 5.0); self.volumeZscoreThreshold.setValue(1.0); self.volumeZscoreThreshold.setSingleStep(0.1)
+        self.windowSize = QSpinBox(); self.windowSize.setRange(10, 100); self.windowSize.setValue(20)
+        self.volumeProfileGroup.layout().addRow("구간 개수:", self.numBins)
+        self.volumeProfileGroup.layout().addRow("거래량 임계값:", self.volumeThreshold)
+        self.volumeProfileGroup.layout().addRow("Z-Score 임계값:", self.volumeZscoreThreshold)
+        self.volumeProfileGroup.layout().addRow("이동평균 윈도우:", self.windowSize)
+        self.volumeProfileGroup.hide()
+        self.backtestParamLayout.addWidget(self.volumeProfileGroup, 8, 0, 1, 2)
+        self.param_groups['거래량 프로파일'] = self.volumeProfileGroup
+
+        # 머신러닝 파라미터 그룹
+        self.mlGroup = self.create_param_group('머신러닝')
+        self.predictionPeriod = QSpinBox(); self.predictionPeriod.setRange(1, 30); self.predictionPeriod.setValue(5)
+        self.trainingPeriod = QSpinBox(); self.trainingPeriod.setRange(10, 365); self.trainingPeriod.setValue(30)
+        self.mlGroup.layout().addRow("예측 기간:", self.predictionPeriod)
+        self.mlGroup.layout().addRow("학습 기간:", self.trainingPeriod)
+        self.mlGroup.hide()
+        self.backtestParamLayout.addWidget(self.mlGroup, 9, 0, 1, 2)
+        self.param_groups['머신러닝'] = self.mlGroup
 
     def setup_sim_param_groups(self):
         # 시뮬레이션 탭 전용 그룹만 생성 및 addWidget
@@ -794,12 +854,10 @@ class AutoTradeWindow(QDialog):
             
         self.trading_enabled = not self.trading_enabled
         if self.trading_enabled:
-            self.tradeStartBtn.setText("자동매매 중지")
-            # self.start_price_updates()
+            self.tradeStartBtn.setText("자동매매 중지")            
             self.start_auto_trading()
         else:
-            self.tradeStartBtn.setText("자동매매 시작")
-            # self.stop_price_updates()
+            self.tradeStartBtn.setText("자동매매 시작")            
             self.stop_auto_trading()
             
     def start_simulation(self):
@@ -922,7 +980,7 @@ class AutoTradeWindow(QDialog):
         except Exception as e:
             print(f"차트 생성 중 오류 발생: {str(e)}")
             traceback.print_exc()
-
+    
     def stop_simulation(self):
         self.trading_enabled = False
         if hasattr(self, 'simulation_thread') and self.simulation_thread is not None:
@@ -1134,9 +1192,11 @@ class AutoTradeWindow(QDialog):
             all_groups.append(self.volumeProfileGroup)
         if hasattr(self, 'mlGroup'):
             all_groups.append(self.mlGroup)
+            
         # 현재 레이아웃에서 모든 그룹 제거 (빈 공간 방지)
         for group in all_groups:
-            group.setParent(None)
+            group.hide()
+            
         # 선택된 전략에 맞는 그룹만 다시 레이아웃에 추가
         group_to_show = None
         if strategy == "RSI":
@@ -1155,8 +1215,10 @@ class AutoTradeWindow(QDialog):
             group_to_show = self.volumeProfileGroup
         elif strategy == "머신러닝" and hasattr(self, 'mlGroup'):
             group_to_show = self.mlGroup
+            
         if group_to_show is not None:
-            self.backtestParamLayout.addWidget(group_to_show)
+            group_to_show.show()
+            self.backtestParamLayout.addWidget(group_to_show, 2, 0, 1, 2)  # 수수료 그룹 아래에 배치
 
     def update_sim_param_groups_visibility(self, strategy):
         groups = [
@@ -1309,7 +1371,7 @@ class AutoTradeWindow(QDialog):
         """Optuna를 사용한 전략 최적화 실행"""
         try:
             import time
-            strategy_name = self.strategyCombo.currentText()
+            strategy_name = self.backtestStrategyCombo.currentText()
             strategy = StrategyFactory.create_strategy(strategy_name)
             
             if strategy is None:
@@ -1375,6 +1437,7 @@ class AutoTradeWindow(QDialog):
                     self.backtestStatus.append("[경고] 수익률이 음수입니다. 실제 적용에 주의!")
             
             self.backtestStatus.append("\n(파라미터는 직접 입력란에 복사해 사용하세요)")
+            
             # 자동 백테스트 실행 제거 (자동 실행 X)
             # self.start_backtest()  # 기존 자동 실행 부분 주석 처리
         except Exception as e:
