@@ -1495,7 +1495,7 @@ class AutoTradeWindow(QDialog):
             log_path = 'backtest_results_log.csv'
             file_exists = os.path.isfile(log_path)
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            strategy_name = self.strategyCombo.currentText() if hasattr(self, 'strategyCombo') else ''
+            strategy_name = self.backtestStrategyCombo.currentText() if hasattr(self, 'backtestStrategyCombo') else ''
             # 파라미터를 항상 실제 값으로 저장
             params = getattr(self, 'last_backtest_params', {})
             params_str = json.dumps(params, ensure_ascii=False)
