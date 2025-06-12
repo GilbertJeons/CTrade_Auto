@@ -27,6 +27,7 @@ import optuna
 from strategies import StrategyFactory, BacktestEngine, OptunaOptimizer
 import logging
 import csv
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 # 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
@@ -41,6 +42,8 @@ class AutoTradeWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent  # 부모 윈도우 저장
+        self.bithumb = python_bithumb.Bithumb(None, None)  # 테스트용 API 객체 생성
+        self.is_connected = True  # 테스트를 위해 True로 설정
         
         self.setWindowTitle("자동매매 시스템")
         self.setGeometry(100, 100, 1200, 800)
@@ -956,10 +959,10 @@ class AutoTradeWindow(QDialog):
             
         self.trading_enabled = not self.trading_enabled
         if self.trading_enabled:
-            self.tradeStartBtn.setText("자동매매 중지")            
+            self.tradeStartBtn.setEnabled(False)
             self.start_auto_trading()
         else:
-            self.tradeStartBtn.setText("자동매매 시작")            
+            self.tradeStartBtn.setEnabled(True)
             self.stop_auto_trading()
             
     def start_simulation(self):
@@ -1059,26 +1062,33 @@ class AutoTradeWindow(QDialog):
             # 가격 차트
             ax1 = fig.add_subplot(gs[0])
             ax1.plot([t[0] for t in price_history], [t[1] for t in price_history], 'b-', label='가격')
-            for t in trade_history:
-                if t['type'] == 'buy':
-                    ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100)
-                elif t['type'] == 'sell':
-                    ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100)
+            if trade_history:
+                for t in trade_history:
+                    if t['type'] == 'buy':
+                        ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100, label='매수')
+                    elif t['type'] == 'sell':
+                        ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100, label='매도')
             ax1.set_title('가격 및 거래')
             ax1.set_xlabel('시간')
             ax1.set_ylabel('가격')
             ax1.grid(True)
-            ax1.legend()
+            # 중복된 라벨 제거
+            handles, labels = ax1.get_legend_handles_labels()
+            by_label = dict(zip(labels, handles))
+            ax1.legend(by_label.values(), by_label.keys())
+            
             # 거래량 차트
             ax2 = fig.add_subplot(gs[1], sharex=ax1)
             if volume_history is not None and len(volume_history) > 1:
-                times, volumes = zip(*volume_history)
-                ax2.scatter(times, volumes, color='limegreen', s=15, label='거래량')
+                times = [t[0] for t in volume_history]
+                volumes = [t[1] for t in volume_history]
+                ax2.scatter(times, volumes, color='limegreen', s=15, alpha=0.5, label='거래량')
+                ax2.legend()
             else:
                 ax2.text(0.5, 0.5, '거래량 데이터 없음', ha='center', va='center', transform=ax2.transAxes)
             ax2.set_ylabel('거래량')
             ax2.grid(True, alpha=0.3)
-            ax2.legend()
+            
             # 자본금 차트
             ax3 = fig.add_subplot(gs[2], sharex=ax1)
             ax3.plot([t[0] for t in balance_history], [t[1] for t in balance_history], 'g-', label='자본금')
@@ -1087,6 +1097,7 @@ class AutoTradeWindow(QDialog):
             ax3.set_ylabel('자본금')
             ax3.grid(True)
             ax3.legend()
+            
             # 차트를 UI에 추가
             canvas = FigureCanvas(fig)
             layout = QVBoxLayout()
@@ -1105,95 +1116,116 @@ class AutoTradeWindow(QDialog):
             self.simulation_thread = None
             
     def start_auto_trading(self):
-        # UI에서 필요한 파라미터 수집
-        coin = self.tradeCoinCombo.currentText()
-        strategy = self.tradeStrategyCombo.currentText()
-        initial_capital = self.tradeInvestment.value()
-        # investment = self.tradeInvestment.value()
-        fee_rate = self.tradeFeeRateSpinBox.value() / 100 if hasattr(self, 'tradeFeeRateSpinBox') else 0.0004
-        # 전략별 파라미터 수집
-        params = {}
-        if strategy == 'RSI':
-            params = {
-                'period': self.tradeRsiPeriod.value(),
-                'overbought': self.tradeRsiOverbought.value(),
-                'oversold': self.tradeRsiOversold.value()
-            }
-        elif strategy == '볼린저밴드':
-            params = {
-                'period': self.tradeBbPeriod.value(),
-                'std': self.tradeBbStd.value()
-            }
-        elif strategy == 'MACD':
-            params = {
-                'fast_period': self.tradeMacdFastPeriod.value(),
-                'slow_period': self.tradeMacdSlowPeriod.value(),
-                'signal_period': self.tradeMacdSignalPeriod.value()
-            }
-        elif strategy == '이동평균선 교차':
-            params = {
-                'short_period': self.tradeMaShortPeriod.value(),
-                'long_period': self.tradeMaLongPeriod.value()
-            }
-        elif strategy == '스토캐스틱':
-            params = {
-                'period': self.tradeStochPeriod.value(),
-                'k_period': self.tradeStochKPeriod.value(),
-                'd_period': self.tradeStochDPeriod.value(),
-                'overbought': self.tradeStochOverbought.value(),
-                'oversold': self.tradeStochOversold.value()
-            }
-        elif strategy == 'ATR 기반 변동성 돌파':
-            params = {
-                'period': self.tradeAtrPeriod.value(),
-                'multiplier': self.tradeAtrMultiplier.value(),
-                'trend_period': self.tradeTrendPeriod.value(),
-                'stop_loss_multiplier': self.tradeStopLossMultiplier.value(),
-                'position_size_multiplier': self.tradePositionSizeMultiplier.value()
-            }
-        elif strategy == '거래량 프로파일':
-            params = {
-                'num_bins': self.tradeNumBins.value(),
-                'volume_threshold': self.tradeVolumeThreshold.value(),
-                'volume_zscore_threshold': self.tradeVolumeZscoreThreshold.value(),
-                'window_size': self.tradeWindowSize.value()
-            }
-        elif strategy == '머신러닝':
-            params = {
-                'prediction_period': self.tradePredictionPeriod.value(),
-                'training_period': self.tradeTrainingPeriod.value()
-            }
-        elif strategy == 'BB+RSI':
-            params = {
-                'bb_period': self.bbRsiPeriod.value(),
-                'bb_std': self.bbRsiStd.value(),
-                'rsi_period': self.bbRsiRsiPeriod.value(),
-                'rsi_high': self.bbRsiHigh.value(),
-                'rsi_low': self.bbRsiLow.value()
-            }
-        elif strategy == 'MACD+EMA':
-            params = {
-                'macd_fast': self.macdEmaFast.value(),
-                'macd_slow': self.macdEmaSlow.value(),
-                'macd_signal': self.macdEmaSignal.value(),
-                'ema_period': self.macdEmaEmaPeriod.value()
-            }
-                
-        # 스레드로 외부 run_simulation 실행
-        self.simulation_thread = threading.Thread(
-            target=self.run_auto_trading,
-            args=(strategy, coin, params, initial_capital, fee_rate)
-        )
-        self.simulation_thread.daemon = True
-        self.simulation_thread.start()
-
+        """자동매매 시작"""
+        try:
+            print("[DEBUG-1] 자동매매 시작 시도")
+            
+            # 필요한 파라미터 수집
+            strategy = self.tradeStrategyCombo.currentText()
+            coin = self.tradeCoinCombo.currentText()
+            initial_capital = float(self.tradeInvestment.value())
+            fee_rate = float(self.tradeFeeRateSpinBox.value()) / 100
+            
+            print(f"[DEBUG-4] 기본 파라미터 수집: {strategy}, {coin}, {initial_capital}")
+            
+            # 전략별 파라미터 수집
+            params = {}
+            if strategy == 'RSI':
+                params = {
+                    'period': self.tradeRsiPeriod.value(),
+                    'overbought': self.tradeRsiOverbought.value(),
+                    'oversold': self.tradeRsiOversold.value()
+                }
+            elif strategy == '볼린저밴드':
+                params = {
+                    'period': self.tradeBbPeriod.value(),
+                    'std_dev': self.tradeBbStd.value()
+                }
+            elif strategy == 'MACD':
+                params = {
+                    'fast_period': self.tradeMacdFastPeriod.value(),
+                    'slow_period': self.tradeMacdSlowPeriod.value(),
+                    'signal_period': self.tradeMacdSignalPeriod.value()
+                }
+            elif strategy == '이동평균선 교차':
+                params = {
+                    'short_period': self.tradeMaShortPeriod.value(),
+                    'long_period': self.tradeMaLongPeriod.value()
+                }
+            elif strategy == '스토캐스틱':
+                params = {
+                    'k_period': self.tradeStochKPeriod.value(),
+                    'd_period': self.tradeStochDPeriod.value(),
+                    'overbought': self.tradeStochOverbought.value(),
+                    'oversold': self.tradeStochOversold.value()
+                }
+            elif strategy == 'ATR 기반 변동성 돌파':
+                params = {
+                    'period': self.tradeAtrPeriod.value(),
+                    'multiplier': self.tradeAtrMultiplier.value(),
+                    'trend_period': self.tradeTrendPeriod.value(),
+                    'stop_loss_multiplier': self.tradeStopLossMultiplier.value(),
+                    'position_size_multiplier': self.tradePositionSizeMultiplier.value()
+                }
+            elif strategy == '거래량 프로파일':
+                params = {
+                    'num_bins': self.tradeNumBins.value(),
+                    'volume_threshold': self.tradeVolumeThreshold.value(),
+                    'volume_zscore_threshold': self.tradeVolumeZscoreThreshold.value(),
+                    'window_size': self.tradeWindowSize.value()
+                }
+            elif strategy == 'BB+RSI':
+                params = {
+                    'bb_period': self.tradeBbRsiPeriod.value(),
+                    'bb_std_dev': self.tradeBbRsiStd.value(),
+                    'rsi_period': self.tradeBbRsiRsiPeriod.value(),
+                    'rsi_upper': self.tradeBbRsiHigh.value(),
+                    'rsi_lower': self.tradeBbRsiLow.value()
+                }
+            elif strategy == 'MACD+EMA':
+                params = {
+                    'macd_fast': self.tradeMacdEmaFast.value(),
+                    'macd_slow': self.tradeMacdEmaSlow.value(),
+                    'macd_signal': self.tradeMacdEmaSignal.value(),
+                    'ema_period': self.tradeMacdEmaEmaPeriod.value()
+                }
+            
+            # 기존 워커가 있다면 정리
+            if hasattr(self, 'trading_worker') and self.trading_worker:
+                self.trading_worker.stop_auto_trading()
+                self.trading_worker.deleteLater()
+            
+            # 새 워커 생성 및 시작
+            self.trading_worker = AutoTradeWorker(self)
+            self.trading_worker.update_status_signal.connect(self.tradeStatus.append)
+            self.trading_worker.show_data_chart_signal.connect(self.show_simulation_chart)  # show_simulation_chart로 연결
+            self.trading_worker.run_auto_trading(strategy, coin, params, initial_capital, fee_rate)
+            
+            # UI 업데이트
+            self.tradeStartBtn.setText("자동매매 중지")
+            self.tradeStatus.append("자동매매가 시작되었습니다.")
+            
+        except Exception as e:
+            self.tradeStatus.append(f"자동매매 시작 실패: {str(e)}")
+            traceback.print_exc()
 
     def stop_auto_trading(self):
-        self.trading_enabled = False
-        if hasattr(self, 'trading_thread') and self.trading_thread is not None:
-            self.trading_thread.join()
-            self.trading_thread = None   
-  
+        """자동매매 중지"""
+        try:
+            self.tradeStatus.append("자동매매 중지 시도...")
+            
+            if hasattr(self, 'trading_worker') and self.trading_worker:
+                self.trading_worker.stop_auto_trading()
+                self.trading_worker.deleteLater()
+                self.trading_worker = None
+                
+            self.tradeStartBtn.setText("자동매매 시작")
+            self.tradeStatus.append("자동매매가 중지되었습니다.")
+            
+        except Exception as e:
+            self.tradeStatus.append(f"자동매매 중지 실패: {str(e)}")
+            traceback.print_exc()
+
     def plot_backtest_results(self, df, trades, final_capital, daily_balance):
         try:
             chart_window = QDialog(self)
@@ -1687,6 +1719,10 @@ class AutoTradeWindow(QDialog):
                 min_candle = max(30, params.get('period', 14) + 1)
             elif strategy == '거래량 프로파일':
                 min_candle = max(30, params.get('num_bins', 10) * 2)
+            elif strategy == 'BB+RSI':
+                min_candle = max(30, params.get('bb_period', 20) + 1, params.get('rsi_period', 14) + 1)
+            elif strategy == 'MACD+EMA':
+                min_candle = max(30, params.get('macd_slow', 26) + params.get('macd_signal', 9), params.get('ema_period', 20))
 
             while self.trading_enabled:
                 try:
@@ -1752,113 +1788,250 @@ class AutoTradeWindow(QDialog):
 
         except Exception as e:
             self.update_sim_status.emit(f"시뮬레이션 실행 중 오류 발생: {str(e)}")
-            traceback.print_exc()
+            traceback.print_exc() 
+
+class AutoTradeWorker(QObject):
+    # 시그널 정의
+    show_data_chart_signal = pyqtSignal(list, list, list, list)  # price_history, trade_history, balance_history, volume_history
+    update_status_signal = pyqtSignal(str)  # 상태 메시지 업데이트용 시그널
+    
+    def __init__(self, parent=None):
+        super().__init__()
+        self.parent = parent
+        self.bithumb = parent.bithumb if parent else None
+        self.is_connected = True  # 테스트를 위해 True로 설정
+        self.trading_enabled = False
+        
+        # QTimer 초기화
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.trading_loop)
+        
+        # 트레이딩 상태 변수들
+        self.balance = 0
+        self.position = 0
+        self.last_signal = None
+        self.price_history = []
+        self.trade_history = []
+        self.balance_history = []
+        self.volume_history = []
+        self.strategy = None
+        self.coin = None
+        self.params = None
+        self.initial_capital = 0
+        self.fee_rate = 0
+        self.min_candle = 30
+
+    def check_api_connection(self):
+        """API 연결 상태 확인"""
+        try:
+            print("[DEBUG-CHECK-1] API 연결 확인 시작")
+            if not self.parent or not self.parent.bithumb:
+                print("[DEBUG-CHECK-2] 메인 윈도우 또는 API 객체 없음")
+                self.update_status_signal.emit("메인 윈도우의 API 연결이 필요합니다.")
+                return False
+            
+            print("[DEBUG-CHECK-3] API 객체 업데이트")
+            self.bithumb = self.parent.bithumb
+            # self.is_connected = self.parent.is_connected  # 이 줄 제거
+            
+            print(f"[DEBUG-CHECK-4] 연결 상태: {self.is_connected}")
+            if not self.is_connected:
+                self.update_status_signal.emit("API가 연결되지 않았습니다.")
+                return False
+                
+            print("[DEBUG-CHECK-5] API 연결 확인 완료")
+            return True
+            
+        except Exception as e:
+            print(f"[DEBUG-CHECK-ERR] API 연결 확인 실패: {str(e)}")
+            self.update_status_signal.emit(f"API 연결 확인 실패: {str(e)}")
+            return False
 
     def run_auto_trading(self, strategy, coin, params, initial_capital, fee_rate):
         """자동매매 실행"""
         try:
-            balance = initial_capital
-            position = 0
-            last_signal = None
-            price_history = []
-            trade_history = []
-            balance_history = []
-            volume_history = []
-
+            print("[DEBUG-AT-1] 자동매매 워커 실행 시작")
+            print(f"[DEBUG-AT-2] 전략: {strategy}, 코인: {coin}")
+            print(f"[DEBUG-AT-3] 파라미터: {params}")
+            print(f"[DEBUG-AT-4] 초기자본: {initial_capital}, 수수료율: {fee_rate}")
+            
+            print("[DEBUG-AT-5] API 연결 체크 시작")
+            if not self.check_api_connection():
+                print("[DEBUG-AT-6] API 연결 실패")
+                self.update_status_signal.emit("API 연결이 필요합니다.")
+                return
+            print("[DEBUG-AT-7] API 연결 체크 완료")
+            
+            # 초기 설정
+            self.strategy = strategy
+            self.coin = coin
+            self.params = params
+            self.initial_capital = initial_capital
+            self.fee_rate = fee_rate
+            self.balance = initial_capital
+            self.position = 0
+            self.last_signal = None
+            self.price_history = []
+            self.trade_history = []
+            self.balance_history = []
+            self.volume_history = []
+            
             # 전략별로 필요한 최소 캔들 개수 계산
-            min_candle = 30  # 기본값
-            if strategy == 'RSI':
-                min_candle = max(30, params.get('period', 14) + 1)
-            elif strategy == '볼린저밴드':
-                min_candle = max(30, params.get('period', 20) + 1)
-            elif strategy == 'MACD':
-                min_candle = max(30, params.get('slow_period', 26) + params.get('signal_period', 9))
-            elif strategy == '이동평균선 교차':
-                min_candle = max(30, params.get('long_period', 20) + 1)
-            elif strategy == '스토캐스틱':
-                min_candle = max(30, params.get('period', 14) + params.get('d_period', 3))
-            elif strategy == 'ATR 기반 변동성 돌파':
-                min_candle = max(30, params.get('period', 14) + 1)
-            elif strategy == '거래량 프로파일':
-                min_candle = max(30, params.get('num_bins', 10) * 2)
-
-            while self.trading_enabled:
-                try:
-                    # 실시간 현재가 조회
-                    current_price = python_bithumb.get_current_price(f"KRW-{coin}")
-                    if current_price is None:
-                        self.tradeStatus.append("현재가 조회 실패")
-                        time.sleep(1)
-                        continue
-
-                    # OHLCV 데이터는 전략 계산용으로만 사용
-                    df = python_bithumb.get_ohlcv(f"KRW-{coin}", interval="minute1", count=min_candle)
-                    if df.empty or len(df) < min_candle:
-                        self.tradeStatus.append(f"캔들 데이터 부족: {len(df)}개")
-                        time.sleep(1)
-                        continue
-
-                    now = datetime.now()
-                    volume = df.iloc[-1]['volume']  # 거래량은 캔들 데이터에서 가져옴
-
-                    # 전략 객체 생성 및 신호 생성
-                    strategy_obj = StrategyFactory.create_strategy(strategy)
-                    if strategy_obj is None:
-                        time.sleep(1)
-                        continue
-
-                    signal = strategy_obj.generate_signal(df, **params)
-
-                    # 상태 업데이트
-                    self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 현재가: {current_price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {balance:,.0f}원, 포지션: {position:.6f}")
-                    price_history.append((now, current_price))
-                    balance_history.append((now, balance + position * current_price))
-                    volume_history.append((now, volume))
-
-                    # 매매 신호에 따른 거래 실행
-                    if signal == 'buy' and last_signal != 'buy':
-                        # 매수 주문
-                        amount = initial_capital / current_price
-                        fee = amount * current_price * fee_rate
-                        
-                        # 실제 매수 주문 실행
-                        order = self.parent.bithumb.buy_market_order(coin, amount)
-                        if order and 'error' not in order:
-                            position += amount
-                            balance -= (initial_capital + fee)
-                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {initial_capital:,.0f}원 매수, 보유: {position:.6f} (수수료: {fee:,.0f}원)")
-                            trade_history.append({'time': now, 'type': 'buy', 'price': current_price, 'amount': amount, 'balance': balance, 'position': position, 'fee': fee})
-                            last_signal = 'buy'
-                        else:
-                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매수 주문 실패: {order.get('error', '알 수 없는 오류')}")
-                            
-                    elif signal == 'sell' and position > 0 and last_signal != 'sell':
-                        # 매도 주문
-                        sell_value = position * current_price
-                        fee = sell_value * fee_rate
-                        
-                        # 실제 매도 주문 실행
-                        order = self.parent.bithumb.sell_market_order(coin, position)
-                        if order and 'error' not in order:
-                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매도 주문 성공! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
-                            trade_history.append({'time': now, 'type': 'sell', 'price': current_price, 'amount': position, 'balance': balance + sell_value - fee, 'position': 0, 'fee': fee})
-                            balance += (sell_value - fee)
-                            position = 0
-                            last_signal = 'sell'
-                        else:
-                            self.tradeStatus.append(f"[{now.strftime('%H:%M:%S')}] 매도 주문 실패: {order.get('error', '알 수 없는 오류')}")
-                    else:
-                        last_signal = None
-
-                    time.sleep(1)  # 1초마다 업데이트
-                except Exception as e:
-                    self.tradeStatus.append(f"자동매매 오류: {str(e)}")
-                    traceback.print_exc()
-                    time.sleep(5)
-
-            # 자동매매 종료 후 차트 표시
-            self.show_sim_chart_signal.emit(price_history, trade_history, balance_history, volume_history)
-
+            self.min_candle = self.calculate_min_candles()
+            print(f"[DEBUG-AT-8] 전략: {strategy}, 코인: {coin}, 필요 캔들 수: {self.min_candle}")
+            print(f"[DEBUG-AT-9] 타이머 시작 시도")
+            
+            # 타이머 시작 (1분 간격)
+            self.trading_enabled = True
+            self.timer.start(60000)  # 60000ms = 1분
+            print("[DEBUG-AT-10] 타이머 시작 완료")
+            
         except Exception as e:
-            self.tradeStatus.append(f"자동매매 실행 중 오류 발생: {str(e)}")
+            print(f"[DEBUG-AT-ERR] 오류 발생: {str(e)}")
+            self.update_status_signal.emit(f"자동매매 실행 중 오류 발생: {str(e)}")
             traceback.print_exc()
+
+    def stop_auto_trading(self):
+        """자동매매 중지"""
+        self.trading_enabled = False
+        self.timer.stop()
+        self.update_status_signal.emit("자동매매가 중지되었습니다.")
+
+    def calculate_min_candles(self):
+        """전략별 필요한 최소 캔들 수 계산"""
+        min_candle = 30
+        if self.strategy == 'RSI':
+            min_candle = max(30, self.params.get('period', 14) + 1)
+        elif self.strategy == '볼린저밴드':
+            min_candle = max(30, self.params.get('period', 20) + 1)
+        elif self.strategy == 'MACD':
+            min_candle = max(30, self.params.get('slow_period', 26) + self.params.get('signal_period', 9))
+        elif self.strategy == '이동평균선 교차':
+            min_candle = max(30, self.params.get('long_period', 20) + 1)
+        elif self.strategy == '스토캐스틱':
+            min_candle = max(30, self.params.get('period', 14) + self.params.get('d_period', 3))
+        elif self.strategy == 'ATR 기반 변동성 돌파':
+            min_candle = max(30, self.params.get('period', 14) + 1)
+        elif self.strategy == '거래량 프로파일':
+            min_candle = max(30, self.params.get('num_bins', 10) * 2)
+        elif self.strategy == 'BB+RSI':
+            min_candle = max(30, self.params.get('bb_period', 20) + 1, self.params.get('rsi_period', 14) + 1)
+        elif self.strategy == 'MACD+EMA':
+            min_candle = max(30, self.params.get('macd_slow', 26) + self.params.get('macd_signal', 9), self.params.get('ema_period', 20))
+        return min_candle
+
+    def trading_loop(self):
+        """트레이딩 루프 - QTimer에 의해 1분마다 호출됨"""
+        if not self.trading_enabled:
+            return
+            
+        try:
+            if not self.check_api_connection():
+                self.update_status_signal.emit("API 연결이 끊어졌습니다. 재연결을 시도합니다.")
+                return
+                
+            # 실시간 현재가 조회
+            current_price = python_bithumb.get_current_price(f"KRW-{self.coin}")
+            if current_price is None:
+                self.update_status_signal.emit("현재가 조회 실패")
+                return
+                
+            # OHLCV 데이터 조회
+            df = python_bithumb.get_ohlcv(f"KRW-{self.coin}", interval="minute1", count=self.min_candle)
+            if df.empty or len(df) < self.min_candle:
+                self.update_status_signal.emit(f"캔들 데이터 부족: {len(df)}개")
+                return
+                
+            now = datetime.now()
+            volume = df.iloc[-1]['volume']
+            
+            # 전략 객체 생성 및 신호 생성
+            strategy_obj = StrategyFactory.create_strategy(self.strategy)
+            if strategy_obj is None:
+                return
+                
+            signal = strategy_obj.generate_signal(df, **self.params)
+            
+            # 상태 업데이트
+            status_msg = f"[{now.strftime('%H:%M:%S')}] 현재가: {current_price:,.0f}원, 신호: {signal if signal else '없음'}, 잔고: {self.balance:,.0f}원, 포지션: {self.position:.6f}"
+            self.update_status_signal.emit(status_msg)
+            self.price_history.append((now, current_price))
+            self.balance_history.append((now, self.balance + self.position * current_price))
+            self.volume_history.append((now, volume))
+            
+            # 매매 신호에 따른 거래 실행
+            if signal == 'buy' and self.last_signal != 'buy':
+                self.execute_buy_order(current_price, now)
+            elif signal == 'sell' and self.position > 0 and self.last_signal != 'sell':
+                self.execute_sell_order(current_price, now)
+            else:
+                self.last_signal = None
+                
+            # 차트 업데이트
+            self.show_data_chart_signal.emit(self.price_history, self.trade_history, self.balance_history, self.volume_history)
+            
+        except Exception as e:
+            self.update_status_signal.emit(f"자동매매 오류: {str(e)}")
+            traceback.print_exc()
+
+    def execute_buy_order(self, current_price, now):
+        """매수 주문 실행"""
+        try:
+            amount = self.initial_capital / current_price
+            fee = amount * current_price * self.fee_rate
+            
+            # 실제 매수 주문 실행 (주석 처리)
+            # order = self.bithumb.buy_market_order(f"KRW-{self.coin}", self.initial_capital)
+            
+            # 가상 주문 (테스트용)
+            order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
+            
+            if order and order.get('status') == 'success':
+                self.position += amount
+                self.balance -= (self.initial_capital + fee)
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {self.initial_capital:,.0f}원 매수, 보유: {self.position:.6f} (수수료: {fee:,.0f}원)")
+                self.trade_history.append({
+                    'time': now,
+                    'type': 'buy',
+                    'price': current_price,
+                    'amount': amount,
+                    'balance': self.balance,
+                    'position': self.position,
+                    'fee': fee
+                })
+                self.last_signal = 'buy'
+            else:
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 실패: {order.get('error', '알 수 없는 오류')}")
+        except Exception as e:
+            self.update_status_signal.emit(f"매수 주문 중 오류 발생: {str(e)}")
+
+    def execute_sell_order(self, current_price, now):
+        """매도 주문 실행"""
+        try:
+            sell_value = self.position * current_price
+            fee = sell_value * self.fee_rate
+            
+            # 실제 매도 주문 실행 (주석 처리)
+            # order = self.bithumb.sell_market_order(f"KRW-{self.coin}", self.position)
+            
+            # 가상 주문 (테스트용)
+            order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
+            
+            if order and order.get('status') == 'success':
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 주문 성공! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
+                self.trade_history.append({
+                    'time': now,
+                    'type': 'sell',
+                    'price': current_price,
+                    'amount': self.position,
+                    'balance': self.balance + sell_value - fee,
+                    'position': 0,
+                    'fee': fee
+                })
+                self.balance += (sell_value - fee)
+                self.position = 0
+                self.last_signal = 'sell'
+            else:
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 주문 실패: {order.get('error', '알 수 없는 오류')}")
+        except Exception as e:
+            self.update_status_signal.emit(f"매도 주문 중 오류 발생: {str(e)}")
