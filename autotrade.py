@@ -28,6 +28,8 @@ from strategies import StrategyFactory, BacktestEngine, OptunaOptimizer
 import logging
 import csv
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
+import matplotlib.ticker as ticker
+from matplotlib.lines import Line2D
 
 # 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
@@ -959,10 +961,10 @@ class AutoTradeWindow(QDialog):
             
         self.trading_enabled = not self.trading_enabled
         if self.trading_enabled:
-            self.tradeStartBtn.setEnabled(False)
+            self.tradeStartBtn.setText("자동매매 중지")
             self.start_auto_trading()
         else:
-            self.tradeStartBtn.setEnabled(True)
+            self.tradeStartBtn.setText("자동매매 시작")
             self.stop_auto_trading()
             
     def start_simulation(self):
@@ -1049,62 +1051,95 @@ class AutoTradeWindow(QDialog):
     def show_simulation_chart(self, price_history, trade_history, balance_history, volume_history=None):
         """시뮬레이션 차트 표시"""
         try:
-            # 기존 차트 창이 있으면 닫기
-            if hasattr(self, 'sim_chart_window') and self.sim_chart_window is not None:
-                self.sim_chart_window.close()
-            # 새 차트 창 생성
-            self.sim_chart_window = QDialog(self)
-            self.sim_chart_window.setWindowTitle('시뮬레이션 결과 차트')
-            self.sim_chart_window.setGeometry(100, 100, 1200, 800)
-            # 차트 생성
-            fig = Figure(figsize=(12, 8))
-            gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 1])
+            # 차트 창이 없을 때만 새로 생성
+            if not hasattr(self, 'sim_chart_window') or self.sim_chart_window is None:
+                self.sim_chart_window = QDialog(self)
+                self.sim_chart_window.setWindowTitle('시뮬레이션 결과 차트')
+                self.sim_chart_window.setGeometry(100, 100, 1200, 800)
+                
+                # 차트 생성
+                self.fig = Figure(figsize=(12, 8))
+                self.gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 1], hspace=0.4)
+                
+                # 차트를 UI에 추가
+                self.canvas = FigureCanvas(self.fig)
+                layout = QVBoxLayout()
+                layout.addWidget(self.canvas)
+                self.sim_chart_window.setLayout(layout)
+                self.sim_chart_window.show()
+            
+            # 기존 서브플롯 제거
+            self.fig.clear()
+            
             # 가격 차트
-            ax1 = fig.add_subplot(gs[0])
+            ax1 = self.fig.add_subplot(self.gs[0])
             ax1.plot([t[0] for t in price_history], [t[1] for t in price_history], 'b-', label='가격')
+            
+            # 매수/매도 포인트를 위한 변수
+            buy_scatter = None
+            sell_scatter = None
+            
             if trade_history:
                 for t in trade_history:
                     if t['type'] == 'buy':
-                        ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100, label='매수')
+                        buy_scatter = ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100)
                     elif t['type'] == 'sell':
-                        ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100, label='매도')
-            ax1.set_title('가격 및 거래')
+                        sell_scatter = ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100)
+            
+            # 범례 설정
+            legend_elements = [Line2D([0], [0], color='b', label='가격')]
+            if buy_scatter:
+                legend_elements.append(Line2D([0], [0], color='r', marker='^', linestyle='None', label='매수'))
+            if sell_scatter:
+                legend_elements.append(Line2D([0], [0], color='g', marker='v', linestyle='None', label='매도'))
+            
+            ax1.legend(handles=legend_elements)
+            ax1.set_title('가격 및 거래', pad=0)
             ax1.set_xlabel('시간')
             ax1.set_ylabel('가격')
             ax1.grid(True)
-            # 중복된 라벨 제거
-            handles, labels = ax1.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            ax1.legend(by_label.values(), by_label.keys())
+            ax1.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             
             # 거래량 차트
-            ax2 = fig.add_subplot(gs[1], sharex=ax1)
-            if volume_history is not None and len(volume_history) > 1:
+            ax2 = self.fig.add_subplot(self.gs[1], sharex=ax1)
+            if volume_history is not None and len(volume_history) > 0:
                 times = [t[0] for t in volume_history]
-                volumes = [t[1] for t in volume_history]
+                volumes = [float(t[1]) for t in volume_history]
+                print(f"[DEBUG-VOLUME] 시간: {times[-1]}, 거래량: {volumes[-1]}")  # 가장 최근 거래량 출력
                 ax2.scatter(times, volumes, color='limegreen', s=15, alpha=0.5, label='거래량')
                 ax2.legend()
+                
+                # 거래량 y축 범위 설정
+                if volumes:
+                    max_volume = max(volumes)
+                    print(f"[DEBUG-VOLUME] 최대 거래량: {max_volume}")  # 최대 거래량 출력
+                    if max_volume > 0:
+                        # y축 범위를 0부터 최대값의 120%로 설정
+                        ax2.set_ylim(0, max_volume * 1.2)
+                        # 적절한 간격으로 눈금 설정 (5개 정도의 눈금)
+                        ax2.yaxis.set_major_locator(ticker.MaxNLocator(5))
+                    else:
+                        ax2.set_ylim(0, 1)
             else:
                 ax2.text(0.5, 0.5, '거래량 데이터 없음', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('거래량', pad=0)
             ax2.set_ylabel('거래량')
             ax2.grid(True, alpha=0.3)
+            ax2.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             
             # 자본금 차트
-            ax3 = fig.add_subplot(gs[2], sharex=ax1)
+            ax3 = self.fig.add_subplot(self.gs[2], sharex=ax1)
             ax3.plot([t[0] for t in balance_history], [t[1] for t in balance_history], 'g-', label='자본금')
-            ax3.set_title('자본금 변화')
+            ax3.set_title('자본금 변화', pad=0)
             ax3.set_xlabel('시간')
             ax3.set_ylabel('자본금')
             ax3.grid(True)
             ax3.legend()
+            ax3.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             
-            # 차트를 UI에 추가
-            canvas = FigureCanvas(fig)
-            layout = QVBoxLayout()
-            layout.addWidget(canvas)
-            self.sim_chart_window.setLayout(layout)
-            # 차트 창 표시
-            self.sim_chart_window.show()
+            # 차트 업데이트
+            self.canvas.draw()
+            
         except Exception as e:
             print(f"차트 생성 중 오류 발생: {str(e)}")
             traceback.print_exc()
@@ -1199,6 +1234,11 @@ class AutoTradeWindow(QDialog):
             self.trading_worker = AutoTradeWorker(self)
             self.trading_worker.update_status_signal.connect(self.tradeStatus.append)
             self.trading_worker.show_data_chart_signal.connect(self.show_simulation_chart)  # show_simulation_chart로 연결
+            
+            # 빈 차트 생성을 위해 시그널 발생
+            self.trading_worker.show_data_chart_signal.emit([], [], [], [])
+            
+            # 자동매매 시작
             self.trading_worker.run_auto_trading(strategy, coin, params, initial_capital, fee_rate)
             
             # UI 업데이트
@@ -1943,7 +1983,9 @@ class AutoTradeWorker(QObject):
                 return
                 
             now = datetime.now()
-            volume = df.iloc[-1]['volume']
+            volume_btc = df.iloc[-1]['volume']
+            # 거래량을 원화로 변환 (현재가 기준)
+            volume_krw = volume_btc * current_price
             
             # 전략 객체 생성 및 신호 생성
             strategy_obj = StrategyFactory.create_strategy(self.strategy)
@@ -1957,7 +1999,7 @@ class AutoTradeWorker(QObject):
             self.update_status_signal.emit(status_msg)
             self.price_history.append((now, current_price))
             self.balance_history.append((now, self.balance + self.position * current_price))
-            self.volume_history.append((now, volume))
+            self.volume_history.append((now, volume_krw))  # 원화 거래량 저장
             
             # 매매 신호에 따른 거래 실행
             if signal == 'buy' and self.last_signal != 'buy':
@@ -1975,26 +2017,36 @@ class AutoTradeWorker(QObject):
             traceback.print_exc()
 
     def execute_buy_order(self, current_price, now):
-        """매수 주문 실행"""
+        """매수 주문 실행 (원화 금액으로 주문)"""
         try:
-            amount = self.initial_capital / current_price
-            fee = amount * current_price * self.fee_rate
+            # 매수 가능한 금액 계산 (잔고의 100%)
+            available_amount = self.balance
+            if available_amount < 5000:  # 최소 주문 금액
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 잔고 부족으로 매수 불가 (최소 주문금액: 5,000원)")
+                return
+                
+            # 수수료를 고려한 실제 매수 가능 금액
+            fee = available_amount * self.fee_rate
+            actual_amount = available_amount - fee
             
-            # 실제 매수 주문 실행 (주석 처리)
-            # order = self.bithumb.buy_market_order(f"KRW-{self.coin}", self.initial_capital)
+            # 매수할 코인 수량 계산 (실제 주문에는 사용하지 않고 기록용으로만 사용)
+            coin_amount = actual_amount / current_price
+            
+            # 실제 매수 주문 실행 (주석 처리) - 원화 금액으로 주문
+            # order = self.bithumb.buy_market_order(f"KRW-{self.coin}", actual_amount)  # 원화 금액으로 주문
             
             # 가상 주문 (테스트용)
             order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
             
             if order and order.get('status') == 'success':
-                self.position += amount
-                self.balance -= (self.initial_capital + fee)
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {self.initial_capital:,.0f}원 매수, 보유: {self.position:.6f} (수수료: {fee:,.0f}원)")
+                self.position += coin_amount
+                self.balance -= (actual_amount + fee)
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {actual_amount:,.0f}원 매수, 보유: {self.position:.6f} (수수료: {fee:,.0f}원)")
                 self.trade_history.append({
                     'time': now,
                     'type': 'buy',
                     'price': current_price,
-                    'amount': amount,
+                    'amount': coin_amount,
                     'balance': self.balance,
                     'position': self.position,
                     'fee': fee
@@ -2006,13 +2058,20 @@ class AutoTradeWorker(QObject):
             self.update_status_signal.emit(f"매수 주문 중 오류 발생: {str(e)}")
 
     def execute_sell_order(self, current_price, now):
-        """매도 주문 실행"""
+        """매도 주문 실행 (코인 수량으로 주문)"""
         try:
-            sell_value = self.position * current_price
+            # 매도할 수량 계산 (포지션의 100%)
+            coin_amount = self.position
+            sell_value = coin_amount * current_price
+            
+            if sell_value < 5000:  # 최소 주문 금액
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 금액이 너무 작습니다 (최소 주문금액: 5,000원)")
+                return
+                
             fee = sell_value * self.fee_rate
             
-            # 실제 매도 주문 실행 (주석 처리)
-            # order = self.bithumb.sell_market_order(f"KRW-{self.coin}", self.position)
+            # 실제 매도 주문 실행 (주석 처리) - 코인 수량으로 주문
+            # order = self.bithumb.sell_market_order(f"KRW-{self.coin}", coin_amount)  # 코인 수량으로 주문
             
             # 가상 주문 (테스트용)
             order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
@@ -2023,7 +2082,7 @@ class AutoTradeWorker(QObject):
                     'time': now,
                     'type': 'sell',
                     'price': current_price,
-                    'amount': self.position,
+                    'amount': coin_amount,
                     'balance': self.balance + sell_value - fee,
                     'position': 0,
                     'fee': fee
