@@ -44,11 +44,18 @@ class AutoTradeWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent  # 부모 윈도우 저장
+        self.is_connected = getattr(self.parent, 'is_connected', False)  # 부모의 연결 상태 복사
         self.bithumb = python_bithumb.Bithumb(None, None)  # 테스트용 API 객체 생성
-        self.is_connected = True  # 테스트를 위해 True로 설정
+        # self.is_connected = False  # 테스트를 위해 True로 설정
         
         self.setWindowTitle("자동매매 시스템")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # 히스토리 데이터 초기화
+        self.price_history = []
+        self.trade_history = []
+        self.balance_history = []
+        self.volume_history = []
         
         # UI 로드
         uic.loadUi('autotrade.ui', self)
@@ -79,10 +86,7 @@ class AutoTradeWindow(QDialog):
         self.data_collection_running = False
         self.data_collection_thread = None
         self.data_collection_stop_event = threading.Event()
-        
-        # API 연결 상태
-        self.is_connected = False
-        
+                
         # 파라미터 그룹 설정
         self.setup_param_groups()
         self.setup_sim_param_groups()
@@ -946,28 +950,41 @@ class AutoTradeWindow(QDialog):
             QMessageBox.warning(self, "경고", "API 연결이 필요합니다.")
             return
             
-        self.trading_enabled = not self.trading_enabled
-        if self.trading_enabled:
+        if self.simStartBtn.text() == "시뮬레이션 시작":
             self.simStartBtn.setText("시뮬레이션 중지")
             self.start_simulation()
         else:
             self.simStartBtn.setText("시뮬레이션 시작")
-            self.stop_simulation()
+            if hasattr(self, 'simulation_worker') and self.simulation_worker:
+                self.simulation_worker.stop_simulation()
+                self.simulation_worker.deleteLater()
+                self.simulation_worker = None
+            # 차트 창 닫기
+            if hasattr(self, 'sim_chart_window') and self.sim_chart_window:
+                self.sim_chart_window.close()
+                self.sim_chart_window = None
             
     def toggle_auto_trading(self):
         if not self.parent.is_connected:
             QMessageBox.warning(self, "경고", "API 연결이 필요합니다.")
             return
             
-        self.trading_enabled = not self.trading_enabled
-        if self.trading_enabled:
+        if self.tradeStartBtn.text() == "자동매매 시작":
             self.tradeStartBtn.setText("자동매매 중지")
             self.start_auto_trading()
         else:
             self.tradeStartBtn.setText("자동매매 시작")
-            self.stop_auto_trading()
-            
+            if hasattr(self, 'trading_worker') and self.trading_worker:
+                self.trading_worker.stop_auto_trading()
+                self.trading_worker.deleteLater()
+                self.trading_worker = None
+            # 차트 창 닫기
+            if hasattr(self, 'sim_chart_window') and self.sim_chart_window:
+                self.sim_chart_window.close()
+                self.sim_chart_window = None
+
     def start_simulation(self):
+        print(f"[DEBUG] AutoTradeWindow start_simulation parent.is_connected: {getattr(self.parent, 'is_connected', None)}")
         """시뮬레이션 시작"""
         try:
             self.simStatus.append("시뮬레이션 시작 시도...")
@@ -1060,7 +1077,6 @@ class AutoTradeWindow(QDialog):
             self.simulation_worker.run_simulation(strategy, coin, params, initial_capital, fee_rate)
             
             # UI 업데이트
-            self.simStartBtn.setText("시뮬레이션 중지")
             self.simStatus.append("시뮬레이션이 시작되었습니다.")
             
         except Exception as e:
@@ -1092,53 +1108,37 @@ class AutoTradeWindow(QDialog):
             
             # 가격 차트
             ax1 = self.fig.add_subplot(self.gs[0])
-            ax1.plot([t[0] for t in price_history], [t[1] for t in price_history], 'b-', label='가격')
-            
-            # 매수/매도 포인트를 위한 변수
-            buy_scatter = None
-            sell_scatter = None
-            
-            if trade_history:
-                for t in trade_history:
-                    if t['type'] == 'buy':
-                        buy_scatter = ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100)
-                    elif t['type'] == 'sell':
-                        sell_scatter = ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100)
-            
-            # 범례 설정
-            legend_elements = [Line2D([0], [0], color='b', label='가격')]
-            if buy_scatter:
-                legend_elements.append(Line2D([0], [0], color='r', marker='^', linestyle='None', label='매수'))
-            if sell_scatter:
-                legend_elements.append(Line2D([0], [0], color='g', marker='v', linestyle='None', label='매도'))
-            
-            ax1.legend(handles=legend_elements)
+            if price_history and len(price_history) > 0:
+                ax1.plot([t[0] for t in price_history], [t[1] for t in price_history], 'b-', label='가격')
+                buy_scatter = None
+                sell_scatter = None
+                if trade_history:
+                    for t in trade_history:
+                        if t['type'] == 'buy':
+                            buy_scatter = ax1.scatter(t['time'], t['price'], color='r', marker='^', s=100)
+                        elif t['type'] == 'sell':
+                            sell_scatter = ax1.scatter(t['time'], t['price'], color='g', marker='v', s=100)
+                legend_elements = [Line2D([0], [0], color='b', label='가격')]
+                if buy_scatter:
+                    legend_elements.append(Line2D([0], [0], color='r', marker='^', linestyle='None', label='매수'))
+                if sell_scatter:
+                    legend_elements.append(Line2D([0], [0], color='g', marker='v', linestyle='None', label='매도'))
+                ax1.legend(handles=legend_elements)
+            else:
+                ax1.text(0.5, 0.5, '가격 데이터 없음', ha='center', va='center', transform=ax1.transAxes)
             ax1.set_title('가격 및 거래', pad=0)
             ax1.set_xlabel('시간')
             ax1.set_ylabel('가격')
             ax1.grid(True)
             ax1.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             
-            # 거래량 차트
+            # 거래량 차트 (scatter)
             ax2 = self.fig.add_subplot(self.gs[1], sharex=ax1)
-            if volume_history is not None and len(volume_history) > 0:
+            if volume_history and len(volume_history) > 0:
                 times = [t[0] for t in volume_history]
                 volumes = [float(t[1]) for t in volume_history]
-                print(f"[DEBUG-VOLUME] 시간: {times[-1]}, 거래량: {volumes[-1]}")  # 가장 최근 거래량 출력
                 ax2.scatter(times, volumes, color='limegreen', s=15, alpha=0.5, label='거래량')
                 ax2.legend()
-                
-                # 거래량 y축 범위 설정
-                if volumes:
-                    max_volume = max(volumes)
-                    print(f"[DEBUG-VOLUME] 최대 거래량: {max_volume}")  # 최대 거래량 출력
-                    if max_volume > 0:
-                        # y축 범위를 0부터 최대값의 120%로 설정
-                        ax2.set_ylim(0, max_volume * 1.2)
-                        # 적절한 간격으로 눈금 설정 (5개 정도의 눈금)
-                        ax2.yaxis.set_major_locator(ticker.MaxNLocator(5))
-                    else:
-                        ax2.set_ylim(0, 1)
             else:
                 ax2.text(0.5, 0.5, '거래량 데이터 없음', ha='center', va='center', transform=ax2.transAxes)
             ax2.set_title('거래량', pad=0)
@@ -1148,12 +1148,15 @@ class AutoTradeWindow(QDialog):
             
             # 자본금 차트
             ax3 = self.fig.add_subplot(self.gs[2], sharex=ax1)
-            ax3.plot([t[0] for t in balance_history], [t[1] for t in balance_history], 'g-', label='자본금')
+            if balance_history and len(balance_history) > 0:
+                ax3.plot([t[0] for t in balance_history], [t[1] for t in balance_history], 'g-', label='자본금')
+                ax3.legend()
+            else:
+                ax3.text(0.5, 0.5, '자본금 데이터 없음', ha='center', va='center', transform=ax3.transAxes)
             ax3.set_title('자본금 변화', pad=0)
             ax3.set_xlabel('시간')
             ax3.set_ylabel('자본금')
             ax3.grid(True)
-            ax3.legend()
             ax3.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             
             # 차트 업데이트
@@ -1161,29 +1164,13 @@ class AutoTradeWindow(QDialog):
             
         except Exception as e:
             print(f"차트 생성 중 오류 발생: {str(e)}")
-            traceback.print_exc()
-    
-    def stop_simulation(self):
-        """시뮬레이션 중지"""
-        try:
-            self.simStatus.append("시뮬레이션 중지 시도...")
-            
-            if hasattr(self, 'simulation_worker') and self.simulation_worker:
-                self.simulation_worker.stop_simulation()
-                self.simulation_worker.deleteLater()
-                self.simulation_worker = None
-                
-            self.simStartBtn.setText("시뮬레이션 시작")
-            self.simStatus.append("시뮬레이션이 중지되었습니다.")
-            
-        except Exception as e:
-            self.simStatus.append(f"시뮬레이션 중지 실패: {str(e)}")
-            traceback.print_exc()
+            traceback.print_exc()   
 
     def start_auto_trading(self):
+        print(f"[DEBUG] AutoTradeWindow start_auto_trading parent.is_connected: {getattr(self.parent, 'is_connected', None)}")
         """자동매매 시작"""
         try:
-            print("[DEBUG-1] 자동매매 시작 시도")
+            self.tradeStatus.append("자동매매 시작 시도...")
             
             # 필요한 파라미터 수집
             strategy = self.tradeStrategyCombo.currentText()
@@ -1191,7 +1178,7 @@ class AutoTradeWindow(QDialog):
             initial_capital = float(self.tradeInvestment.value())
             fee_rate = float(self.tradeFeeRateSpinBox.value()) / 100
             
-            print(f"[DEBUG-4] 기본 파라미터 수집: {strategy}, {coin}, {initial_capital}")
+            print(f"[DEBUG-AT-1] 기본 파라미터 수집: {strategy}, {coin}, {initial_capital}")
             
             # 전략별 파라미터 수집
             params = {}
@@ -1219,6 +1206,7 @@ class AutoTradeWindow(QDialog):
                 }
             elif strategy == '스토캐스틱':
                 params = {
+                    'period': self.tradeStochPeriod.value(),
                     'k_period': self.tradeStochKPeriod.value(),
                     'd_period': self.tradeStochDPeriod.value(),
                     'overbought': self.tradeStochOverbought.value(),
@@ -1263,7 +1251,7 @@ class AutoTradeWindow(QDialog):
             # 새 워커 생성 및 시작
             self.trading_worker = AutoTradeWorker(self)
             self.trading_worker.update_status_signal.connect(self.tradeStatus.append)
-            self.trading_worker.show_data_chart_signal.connect(self.show_simulation_chart)  # show_simulation_chart로 연결
+            self.trading_worker.show_data_chart_signal.connect(self.show_simulation_chart)
             
             # 빈 차트 생성을 위해 시그널 발생
             self.trading_worker.show_data_chart_signal.emit([], [], [], [])
@@ -1272,28 +1260,10 @@ class AutoTradeWindow(QDialog):
             self.trading_worker.run_auto_trading(strategy, coin, params, initial_capital, fee_rate)
             
             # UI 업데이트
-            self.tradeStartBtn.setText("자동매매 중지")
             self.tradeStatus.append("자동매매가 시작되었습니다.")
             
         except Exception as e:
             self.tradeStatus.append(f"자동매매 시작 실패: {str(e)}")
-            traceback.print_exc()
-
-    def stop_auto_trading(self):
-        """자동매매 중지"""
-        try:
-            self.tradeStatus.append("자동매매 중지 시도...")
-            
-            if hasattr(self, 'trading_worker') and self.trading_worker:
-                self.trading_worker.stop_auto_trading()
-                self.trading_worker.deleteLater()
-                self.trading_worker = None
-                
-            self.tradeStartBtn.setText("자동매매 시작")
-            self.tradeStatus.append("자동매매가 중지되었습니다.")
-            
-        except Exception as e:
-            self.tradeStatus.append(f"자동매매 중지 실패: {str(e)}")
             traceback.print_exc()
 
     def plot_backtest_results(self, df, trades, final_capital, daily_balance):
@@ -1758,6 +1728,65 @@ class AutoTradeWindow(QDialog):
             self.strategyDescriptionLabel.setText(desc)
         print(f'[DEBUG] 전략 설명 라벨 업데이트: {strategy} → {desc}')  
     
+    def closeEvent(self, event):
+        """창이 닫힐 때 호출되는 이벤트 핸들러"""
+        try:
+            print("[DEBUG] 창 닫기 시작")
+            
+            # 자동매매 중지
+            if hasattr(self, 'trading_worker') and self.trading_worker:
+                print("[DEBUG] 자동매매 워커 정리 시작")
+                self.trading_worker.trading_enabled = False
+                if hasattr(self.trading_worker, 'trading_timer'):
+                    self.trading_worker.trading_timer.stop()
+                    self.trading_worker.trading_timer.deleteLater()
+                self.trading_worker.deleteLater()
+                self.trading_worker = None
+                self.tradeStartBtn.setText("자동매매 시작")
+                self.tradeStatus.append("자동매매가 중지되었습니다.")
+                print("[DEBUG] 자동매매 워커 정리 완료")
+            
+            # 시뮬레이션 중지
+            if hasattr(self, 'simulation_worker') and self.simulation_worker:
+                print("[DEBUG] 시뮬레이션 워커 정리 시작")
+                self.simulation_worker.simulation_enabled = False
+                if hasattr(self.simulation_worker, 'simulation_timer'):
+                    self.simulation_worker.simulation_timer.stop()
+                    self.simulation_worker.simulation_timer.deleteLater()
+                self.simulation_worker.deleteLater()
+                self.simulation_worker = None
+                self.simStartBtn.setText("시뮬레이션 시작")
+                self.simStatus.append("시뮬레이션이 중지되었습니다.")
+                print("[DEBUG] 시뮬레이션 워커 정리 완료")
+            
+            # 차트 창 및 관련 객체 정리
+            if hasattr(self, 'sim_chart_window') and self.sim_chart_window:
+                print("[DEBUG] 차트 창 정리 시작")
+                if hasattr(self, 'canvas'):
+                    self.canvas.deleteLater()
+                    self.canvas = None
+                if hasattr(self, 'fig'):
+                    self.fig.clear()
+                    self.fig = None
+                self.sim_chart_window.close()
+                self.sim_chart_window.deleteLater()
+                self.sim_chart_window = None
+                print("[DEBUG] 차트 창 정리 완료")
+            
+            # 모든 변수 초기화
+            self.price_history = []
+            self.trade_history = []
+            self.balance_history = []
+            self.volume_history = []
+            
+            print("[DEBUG] 모든 리소스가 정리되었습니다.")
+            event.accept()
+            
+        except Exception as e:
+            print(f"[DEBUG] 창 닫기 오류: {str(e)}")
+            traceback.print_exc()
+            event.accept()
+
 class AutoTradeWorker(QObject):
     # 시그널 정의
     show_data_chart_signal = pyqtSignal(list, list, list, list)  # price_history, trade_history, balance_history, volume_history
@@ -1766,13 +1795,10 @@ class AutoTradeWorker(QObject):
     def __init__(self, parent=None):
         super().__init__()
         self.parent = parent
+        print(f"[DEBUG] AutoTradeWorker __init__ parent.is_connected: {getattr(self.parent, 'is_connected', None)}")
         self.bithumb = parent.bithumb if parent else None
-        self.is_connected = True  # 테스트를 위해 True로 설정
-        self.trading_enabled = False
-        
-        # QTimer 초기화
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.trading_loop)
+        # self.is_connected = False  # 테스트를 위해 True로 설정
+        self.trading_enabled = False        
         
         # 트레이딩 상태 변수들
         self.balance = 0
@@ -1787,19 +1813,11 @@ class AutoTradeWorker(QObject):
         self.params = None
         self.initial_capital = 0
         self.fee_rate = 0
-        self.min_candle = 30
-        
-        # 시뮬레이션 관련 변수 추가
-        self.simulation_enabled = False
-        self.simulation_timer = QTimer(self)
-        self.simulation_timer.timeout.connect(self.simulation_loop)
+        self.min_candle = 30        
 
     def run_simulation(self, strategy, coin, params, initial_capital, fee_rate):
         """시뮬레이션 실행"""
         try:
-            print("[DEBUG-SIM-1] 시뮬레이션 시작")
-            
-            # 초기 설정
             self.strategy = strategy
             self.coin = coin
             self.params = params
@@ -1815,13 +1833,18 @@ class AutoTradeWorker(QObject):
             
             # 전략별로 필요한 최소 캔들 개수 계산
             self.min_candle = self.calculate_min_candles()
-            print(f"[DEBUG-SIM-2] 전략: {strategy}, 코인: {coin}, 필요 캔들 수: {self.min_candle}")
-            print(f"[DEBUG-SIM-3] 타이머 시작 시도")
+            print(f"[DEBUG-SIM-8] 전략: {strategy}, 코인: {coin}, 필요 캔들 수: {self.min_candle}")
+            print(f"[DEBUG-SIM-9] 타이머 시작 시도")
             
             # 타이머 시작 (1초 간격)
             self.simulation_enabled = True
+            if hasattr(self, 'simulation_timer'):
+                self.simulation_timer.stop()
+                self.simulation_timer.deleteLater()
+            self.simulation_timer = QTimer(self)  # self를 부모로 설정
+            self.simulation_timer.timeout.connect(self.simulation_loop)
             self.simulation_timer.start(1000)  # 1000ms = 1초
-            print("[DEBUG-SIM-4] 타이머 시작 완료")
+            print("[DEBUG-SIM-10] 타이머 시작 완료")
             
         except Exception as e:
             print(f"[DEBUG-SIM-ERR] 오류 발생: {str(e)}")
@@ -1830,8 +1853,26 @@ class AutoTradeWorker(QObject):
 
     def stop_simulation(self):
         """시뮬레이션 중지"""
+        print("[DEBUG] 시뮬레이션 중지 시도")
         self.simulation_enabled = False
-        self.simulation_timer.stop()
+        if hasattr(self, 'simulation_timer'):
+            self.simulation_timer.stop()
+            self.simulation_timer.deleteLater()
+            self.simulation_timer = None
+        
+        # 모든 변수 초기화
+        self.strategy = None
+        self.coin = None
+        self.params = None
+        self.balance = 0
+        self.position = 0
+        self.last_signal = None
+        self.price_history.clear()
+        self.trade_history.clear()
+        self.balance_history.clear()
+        self.volume_history.clear()
+        
+        print("[DEBUG] 시뮬레이션 중지 완료")
         self.update_status_signal.emit("시뮬레이션이 중지되었습니다.")
 
     def simulation_loop(self):
@@ -1911,22 +1952,18 @@ class AutoTradeWorker(QObject):
     def check_api_connection(self):
         """API 연결 상태 확인"""
         try:
-            print("[DEBUG-CHECK-1] API 연결 확인 시작")
-            if not self.parent or not self.parent.bithumb:
-                print("[DEBUG-CHECK-2] 메인 윈도우 또는 API 객체 없음")
+            
+            if not self.parent or not self.parent.bithumb:                
                 self.update_status_signal.emit("메인 윈도우의 API 연결이 필요합니다.")
-                return False
+                return False            
             
-            print("[DEBUG-CHECK-3] API 객체 업데이트")
             self.bithumb = self.parent.bithumb
-            # self.is_connected = self.parent.is_connected  # 이 줄 제거
+            self.is_connected = self.parent.is_connected  # 이 줄 제거            
             
-            print(f"[DEBUG-CHECK-4] 연결 상태: {self.is_connected}")
             if not self.is_connected:
                 self.update_status_signal.emit("API가 연결되지 않았습니다.")
-                return False
-                
-            print("[DEBUG-CHECK-5] API 연결 확인 완료")
+                return False                
+            
             return True
             
         except Exception as e:
@@ -1937,18 +1974,6 @@ class AutoTradeWorker(QObject):
     def run_auto_trading(self, strategy, coin, params, initial_capital, fee_rate):
         """자동매매 실행"""
         try:
-            print("[DEBUG-AT-1] 자동매매 워커 실행 시작")
-            print(f"[DEBUG-AT-2] 전략: {strategy}, 코인: {coin}")
-            print(f"[DEBUG-AT-3] 파라미터: {params}")
-            print(f"[DEBUG-AT-4] 초기자본: {initial_capital}, 수수료율: {fee_rate}")
-            
-            print("[DEBUG-AT-5] API 연결 체크 시작")
-            if not self.check_api_connection():
-                print("[DEBUG-AT-6] API 연결 실패")
-                self.update_status_signal.emit("API 연결이 필요합니다.")
-                return
-            print("[DEBUG-AT-7] API 연결 체크 완료")
-            
             # 초기 설정
             self.strategy = strategy
             self.coin = coin
@@ -1965,23 +1990,40 @@ class AutoTradeWorker(QObject):
             
             # 전략별로 필요한 최소 캔들 개수 계산
             self.min_candle = self.calculate_min_candles()
-            print(f"[DEBUG-AT-8] 전략: {strategy}, 코인: {coin}, 필요 캔들 수: {self.min_candle}")
-            print(f"[DEBUG-AT-9] 타이머 시작 시도")
             
-            # 타이머 시작 (1분 간격)
+            # 타이머 시작 (1초 간격)
             self.trading_enabled = True
-            self.timer.start(1000)  # 60000ms = 1분
-            print("[DEBUG-AT-10] 타이머 시작 완료")
+            if hasattr(self, 'trading_timer'):
+                self.trading_timer.stop()
+                self.trading_timer.deleteLater()
+            self.trading_timer = QTimer(self)  # self를 부모로 설정
+            self.trading_timer.timeout.connect(self.trading_loop)
+            self.trading_timer.start(1000)  # 1000ms = 1초
             
         except Exception as e:
-            print(f"[DEBUG-AT-ERR] 오류 발생: {str(e)}")
             self.update_status_signal.emit(f"자동매매 실행 중 오류 발생: {str(e)}")
             traceback.print_exc()
 
     def stop_auto_trading(self):
         """자동매매 중지"""
         self.trading_enabled = False
-        self.timer.stop()
+        if hasattr(self, 'trading_timer'):
+            self.trading_timer.stop()
+            self.trading_timer.deleteLater()
+            self.trading_timer = None
+        
+        # 모든 변수 초기화
+        self.strategy = None
+        self.coin = None
+        self.params = None
+        self.balance = 0
+        self.position = 0
+        self.last_signal = None
+        self.price_history.clear()
+        self.trade_history.clear()
+        self.balance_history.clear()
+        self.volume_history.clear()
+        
         self.update_status_signal.emit("자동매매가 중지되었습니다.")
 
     def calculate_min_candles(self):
@@ -2016,7 +2058,7 @@ class AutoTradeWorker(QObject):
             if not self.check_api_connection():
                 self.update_status_signal.emit("API 연결이 끊어졌습니다. 재연결을 시도합니다.")
                 return
-                
+
             # 실시간 현재가 조회
             current_price = python_bithumb.get_current_price(f"KRW-{self.coin}")
             if current_price is None:
@@ -2055,10 +2097,10 @@ class AutoTradeWorker(QObject):
                 self.execute_sell_order(current_price, now)
             else:
                 self.last_signal = None
-                
+
             # 차트 업데이트
             self.show_data_chart_signal.emit(self.price_history, self.trade_history, self.balance_history, self.volume_history)
-            
+
         except Exception as e:
             self.update_status_signal.emit(f"자동매매 오류: {str(e)}")
             traceback.print_exc()
