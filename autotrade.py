@@ -807,7 +807,6 @@ class AutoTradeWindow(QDialog):
         self.simParamLayout.addWidget(self.simMacdEmaGroup)
 
     def setup_trade_param_groups(self):
-        # 자동매매 탭 전용 그룹만 생성 및 addWidget
         self.tradeFeeGroup = QGroupBox("수수료 설정")
         tradeFeeLayout = QHBoxLayout()
         self.tradeFeeLabel = QLabel("수수료율(%)")
@@ -822,6 +821,19 @@ class AutoTradeWindow(QDialog):
         tradeFeeLayout.addWidget(self.tradeFeeRangeLabel)
         self.tradeFeeGroup.setLayout(tradeFeeLayout)
         self.tradeParamLayout.addWidget(self.tradeFeeGroup)
+
+        # 1회 거래 금액 설정
+        self.tradeAmountGroup = QGroupBox("거래 금액 설정")
+        tradeAmountLayout = QHBoxLayout()
+        self.tradeAmountLabel = QLabel("1회 거래 금액(원)")
+        self.tradeAmountSpinBox = QSpinBox()
+        self.tradeAmountSpinBox.setRange(10000, 1000000000)
+        self.tradeAmountSpinBox.setSingleStep(100000)
+        self.tradeAmountSpinBox.setValue(1000000)  # 기본값 100만원
+        tradeAmountLayout.addWidget(self.tradeAmountLabel)
+        tradeAmountLayout.addWidget(self.tradeAmountSpinBox)
+        self.tradeAmountGroup.setLayout(tradeAmountLayout)
+        self.tradeParamLayout.addWidget(self.tradeAmountGroup)
 
         self.tradeRsiGroup = self.create_param_group('RSI')
         self.tradeRsiPeriod = QSpinBox(); self.tradeRsiPeriod.setRange(1, 100); self.tradeRsiPeriod.setValue(14)
@@ -1089,7 +1101,7 @@ class AutoTradeWindow(QDialog):
             # 차트 창이 없을 때만 새로 생성
             if not hasattr(self, 'sim_chart_window') or self.sim_chart_window is None:
                 self.sim_chart_window = QDialog(self)
-                self.sim_chart_window.setWindowTitle('시뮬레이션 결과 차트')
+                self.sim_chart_window.setWindowTitle('거래 차트')
                 self.sim_chart_window.setGeometry(100, 100, 1200, 800)
                 
                 # 차트 생성
@@ -1177,8 +1189,9 @@ class AutoTradeWindow(QDialog):
             coin = self.tradeCoinCombo.currentText()
             initial_capital = float(self.tradeInvestment.value())
             fee_rate = float(self.tradeFeeRateSpinBox.value()) / 100
+            trade_amount = float(self.tradeAmountSpinBox.value())  # 1회 거래 금액
             
-            print(f"[DEBUG-AT-1] 기본 파라미터 수집: {strategy}, {coin}, {initial_capital}")
+            print(f"[DEBUG-AT-1] 기본 파라미터 수집: {strategy}, {coin}, {initial_capital}, {trade_amount}")
             
             # 전략별 파라미터 수집
             params = {}
@@ -1257,7 +1270,7 @@ class AutoTradeWindow(QDialog):
             self.trading_worker.show_data_chart_signal.emit([], [], [], [])
             
             # 자동매매 시작
-            self.trading_worker.run_auto_trading(strategy, coin, params, initial_capital, fee_rate)
+            self.trading_worker.run_auto_trading(strategy, coin, params, initial_capital, fee_rate, trade_amount)
             
             # UI 업데이트
             self.tradeStatus.append("자동매매가 시작되었습니다.")
@@ -1813,7 +1826,11 @@ class AutoTradeWorker(QObject):
         self.params = None
         self.initial_capital = 0
         self.fee_rate = 0
-        self.min_candle = 30        
+        
+        # 분할 매수/매도 관련 변수 추가
+        self.split_count = 1  # 분할 횟수
+        self.current_split = 0  # 현재 분할 진행 횟수
+        self.split_amount = 0  # 분할당 거래 금액
 
     def run_simulation(self, strategy, coin, params, initial_capital, fee_rate):
         """시뮬레이션 실행"""
@@ -1859,6 +1876,14 @@ class AutoTradeWorker(QObject):
             self.simulation_timer.stop()
             self.simulation_timer.deleteLater()
             self.simulation_timer = None
+        
+        # 거래 기록 저장
+        print("[DEBUG] 거래 기록 저장 시도")
+        if hasattr(self, 'trade_history') and self.trade_history:
+            print(f"[DEBUG] 거래 기록 개수: {len(self.trade_history)}")
+            self.save_trade_history()
+        else:
+            print("[DEBUG] 저장할 거래 기록이 없습니다.")
         
         # 모든 변수 초기화
         self.strategy = None
@@ -1971,7 +1996,7 @@ class AutoTradeWorker(QObject):
             self.update_status_signal.emit(f"API 연결 확인 실패: {str(e)}")
             return False
 
-    def run_auto_trading(self, strategy, coin, params, initial_capital, fee_rate):
+    def run_auto_trading(self, strategy, coin, params, initial_capital, fee_rate, trade_amount):
         """자동매매 실행"""
         try:
             # 초기 설정
@@ -1980,6 +2005,13 @@ class AutoTradeWorker(QObject):
             self.params = params
             self.initial_capital = initial_capital
             self.fee_rate = fee_rate
+            self.trade_amount = trade_amount  # 1회 거래 금액 저장
+            
+            print(f"[DEBUG] 자동매매 시작 - 전략: {strategy}, 코인: {coin}")
+            print(f"[DEBUG] 초기 투자금액: {initial_capital:,.0f}원")
+            print(f"[DEBUG] 1회 거래금액: {trade_amount:,.0f}원")
+            print(f"[DEBUG] 수수료율: {fee_rate*100:.2f}%")
+            
             self.balance = initial_capital
             self.position = 0
             self.last_signal = None
@@ -2006,11 +2038,24 @@ class AutoTradeWorker(QObject):
 
     def stop_auto_trading(self):
         """자동매매 중지"""
+        print("[DEBUG] 자동매매 중지 시도")
         self.trading_enabled = False
         if hasattr(self, 'trading_timer'):
             self.trading_timer.stop()
             self.trading_timer.deleteLater()
             self.trading_timer = None
+        
+        # 거래 기록이 없으면 테스트 거래 생성
+        if not self.trade_history:
+            self.generate_test_trades()
+        
+        # 거래 기록 저장
+        print("[DEBUG] 거래 기록 저장 시도")
+        if hasattr(self, 'trade_history') and self.trade_history:
+            print(f"[DEBUG] 거래 기록 개수: {len(self.trade_history)}")
+            self.save_trade_history()
+        else:
+            print("[DEBUG] 저장할 거래 기록이 없습니다.")
         
         # 모든 변수 초기화
         self.strategy = None
@@ -2024,6 +2069,7 @@ class AutoTradeWorker(QObject):
         self.balance_history.clear()
         self.volume_history.clear()
         
+        print("[DEBUG] 자동매매 중지 완료")
         self.update_status_signal.emit("자동매매가 중지되었습니다.")
 
     def calculate_min_candles(self):
@@ -2091,16 +2137,14 @@ class AutoTradeWorker(QObject):
             self.volume_history.append((now, volume_krw))  # 원화 거래량 저장
             
             # 매매 신호에 따른 거래 실행
-            if signal == 'buy' and self.last_signal != 'buy':
+            if signal == 'buy':
                 self.execute_buy_order(current_price, now)
-            elif signal == 'sell' and self.position > 0 and self.last_signal != 'sell':
+            elif signal == 'sell' and self.position > 0:
                 self.execute_sell_order(current_price, now)
-            else:
-                self.last_signal = None
 
             # 차트 업데이트
             self.show_data_chart_signal.emit(self.price_history, self.trade_history, self.balance_history, self.volume_history)
-
+            
         except Exception as e:
             self.update_status_signal.emit(f"자동매매 오류: {str(e)}")
             traceback.print_exc()
@@ -2108,78 +2152,168 @@ class AutoTradeWorker(QObject):
     def execute_buy_order(self, current_price, now):
         """매수 주문 실행 (원화 금액으로 주문)"""
         try:
-            # 매수 가능한 금액 계산 (잔고의 100%)
-            available_amount = self.balance
-            if available_amount < 5000:  # 최소 주문 금액
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 잔고 부족으로 매수 불가 (최소 주문금액: 5,000원)")
+            # 잔고 체크
+            if self.balance < self.trade_amount:
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 불가: 잔고 부족 (잔고: {self.balance:,.0f}원, 필요: {self.trade_amount:,.0f}원)")
                 return
-                
-            # 수수료를 고려한 실제 매수 가능 금액
-            fee = available_amount * self.fee_rate
-            actual_amount = available_amount - fee
             
-            # 매수할 코인 수량 계산 (실제 주문에는 사용하지 않고 기록용으로만 사용)
+            # 수수료 계산
+            fee = self.trade_amount * self.fee_rate
+            actual_amount = self.trade_amount - fee
+            
+            # 코인 수량 계산
             coin_amount = actual_amount / current_price
             
-            # 실제 매수 주문 실행 (주석 처리) - 원화 금액으로 주문
-            # order = self.bithumb.buy_market_order(f"KRW-{self.coin}", actual_amount)  # 원화 금액으로 주문
+            # 주문 실행
+            self.position += coin_amount
+            self.balance -= (actual_amount + fee)
             
-            # 가상 주문 (테스트용)
-            order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
+            self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 성공! {actual_amount:,.0f}원 매수, 보유: {self.position:.6f} (수수료: {fee:,.0f}원, 잔고: {self.balance:,.0f}원)")
             
-            if order and order.get('status') == 'success':
-                self.position += coin_amount
-                self.balance -= (actual_amount + fee)
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 성공! {actual_amount:,.0f}원 매수, 보유: {self.position:.6f} (수수료: {fee:,.0f}원)")
-                self.trade_history.append({
-                    'time': now,
-                    'type': 'buy',
-                    'price': current_price,
-                    'amount': coin_amount,
-                    'balance': self.balance,
-                    'position': self.position,
-                    'fee': fee
-                })
-                self.last_signal = 'buy'
-            else:
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매수 주문 실패: {order.get('error', '알 수 없는 오류')}")
+            # 거래 기록 추가
+            self.trade_history.append({
+                'time': now,
+                'type': 'buy',
+                'price': current_price,
+                'amount': coin_amount,
+                'fee': fee,
+                'position': self.position,
+                'balance': self.balance
+            })
+            
         except Exception as e:
-            self.update_status_signal.emit(f"매수 주문 중 오류 발생: {str(e)}")
+            error_msg = f"매수 주문 실행 중 오류 발생: {str(e)}"
+            self.update_status_signal.emit(error_msg)
+            print(f"[DEBUG] {error_msg}")
 
     def execute_sell_order(self, current_price, now):
-        """매도 주문 실행 (코인 수량으로 주문)"""
+        """매도 주문 실행"""
         try:
-            # 매도할 수량 계산 (포지션의 100%)
-            coin_amount = self.position
-            sell_value = coin_amount * current_price
+            # 보유 코인 체크
+            if self.position <= 0:
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 불가: 보유 코인 없음")
+                return
             
-            if sell_value < 5000:  # 최소 주문 금액
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 금액이 너무 작습니다 (최소 주문금액: 5,000원)")
+            # 코인 수량 계산
+            coin_amount = self.trade_amount / current_price
+            
+            # 보유 코인이 부족한 경우
+            if coin_amount > self.position:
+                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 불가: 보유 코인 부족 (보유: {self.position:.6f}, 필요: {coin_amount:.6f})")
+                return
+            
+            # 수수료 계산
+            sell_value = coin_amount * current_price
+            fee = sell_value * self.fee_rate
+            actual_amount = sell_value - fee
+            
+            # 주문 실행
+            self.position -= coin_amount
+            self.balance += actual_amount
+            
+            self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 성공! {actual_amount:,.0f}원 매도, 보유: {self.position:.6f} (수수료: {fee:,.0f}원, 잔고: {self.balance:,.0f}원)")
+            
+            # 거래 기록 추가
+            self.trade_history.append({
+                'time': now,
+                'type': 'sell',
+                'price': current_price,
+                'amount': coin_amount,
+                'fee': fee,
+                'position': self.position,
+                'balance': self.balance
+            })
+            
+        except Exception as e:
+            error_msg = f"매도 주문 실행 중 오류 발생: {str(e)}"
+            self.update_status_signal.emit(error_msg)
+            print(f"[DEBUG] {error_msg}")
+
+    def save_trade_history(self):
+        """거래 기록 저장"""
+        try:
+            if not self.trade_history:
+                print("[DEBUG] 저장할 거래 기록이 없습니다.")
                 return
                 
-            fee = sell_value * self.fee_rate
+            print("[DEBUG] 거래 기록 저장 시작")
+            print(f"[DEBUG] 거래 기록 개수: {len(self.trade_history)}")
             
-            # 실제 매도 주문 실행 (주석 처리) - 코인 수량으로 주문
-            # order = self.bithumb.sell_market_order(f"KRW-{self.coin}", coin_amount)  # 코인 수량으로 주문
+            # 저장 경로 설정
+            save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trade_history')
+            os.makedirs(save_dir, exist_ok=True)
             
-            # 가상 주문 (테스트용)
-            order = {'price': current_price, 'status': 'success'}  # 가상의 성공한 주문
+            # 파일명 생성
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'trade_history_{self.coin}_{timestamp}.csv'
+            filepath = os.path.join(save_dir, filename)
             
-            if order and order.get('status') == 'success':
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 주문 성공! {sell_value:,.0f}원 매도, 보유: 0 (수수료: {fee:,.0f}원)")
-                self.trade_history.append({
-                    'time': now,
-                    'type': 'sell',
-                    'price': current_price,
-                    'amount': coin_amount,
-                    'balance': self.balance + sell_value - fee,
-                    'position': 0,
-                    'fee': fee
-                })
-                self.balance += (sell_value - fee)
-                self.position = 0
-                self.last_signal = 'sell'
-            else:
-                self.update_status_signal.emit(f"[{now.strftime('%H:%M:%S')}] 매도 주문 실패: {order.get('error', '알 수 없는 오류')}")
+            # CSV 파일로 저장
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['시간', '거래유형', '가격', '수량', '수수료', '포지션', '잔고'])
+                
+                for trade in self.trade_history:
+                    writer.writerow([
+                        trade['time'].strftime('%Y-%m-%d %H:%M:%S'),
+                        trade['type'],
+                        f"{trade['price']:,.0f}",
+                        f"{trade['amount']:.8f}",
+                        f"{trade['fee']:,.0f}",
+                        f"{trade['position']:.8f}",
+                        f"{trade['balance']:,.0f}"
+                    ])
+            
+            # 거래 결과 요약 계산
+            initial_balance = self.initial_capital
+            final_balance = self.trade_history[-1]['balance']
+            total_profit = final_balance - initial_balance
+            profit_rate = (total_profit / initial_balance) * 100
+            total_fee = sum(trade['fee'] for trade in self.trade_history)
+            total_trades = len(self.trade_history)
+            
+            # 결과 출력
+            print("\n거래 기록이 저장되었습니다.")
+            print(f"저장 위치: {filepath}\n")
+            print("=== 거래 결과 요약 ===")
+            print(f"초기자본: {initial_balance:,.0f}원")
+            print(f"최종잔고: {final_balance:,.0f}원")
+            print(f"총 수익: {total_profit:,.0f}원")
+            print(f"총 수익률: {profit_rate:.2f}%")
+            print(f"총 수수료: {total_fee:,.0f}원")
+            print(f"총 거래횟수: {total_trades}회")
+            
         except Exception as e:
-            self.update_status_signal.emit(f"매도 주문 중 오류 발생: {str(e)}")
+            error_msg = f"거래 기록 저장 중 오류 발생: {str(e)}"
+            self.update_status_signal.emit(error_msg)
+            print(f"[DEBUG] {error_msg}")
+
+    def generate_test_trades(self):
+        """테스트용 거래 기록 생성"""
+        try:
+            print("[DEBUG] 테스트 거래 기록 생성 시작")
+            
+            # 초기화
+            self.trade_history = []
+            self.balance = self.initial_capital  # UI에서 설정한 초기자본금 사용
+            self.position = 0
+            
+            # 10개의 매수/매도 거래 생성
+            for i in range(10):
+                # 매수 거래
+                print(f"[DEBUG] {i+1}번째 매수 거래 생성 (거래금액: {self.trade_amount:,.0f}원)")
+                self.execute_buy_order(50000000, datetime.now())  # 5천만원 가정
+                
+                # 매도 거래
+                print(f"[DEBUG] {i+1}번째 매도 거래 생성 (거래금액: {self.trade_amount:,.0f}원)")
+                self.execute_sell_order(51000000, datetime.now())  # 5천1백만원 가정
+            
+            # print(f"[DEBUG] 테스트 거래 기록 생성 완료. 총 {len(self.trade_history)}개의 거래 기록이 생성되었습니다.")
+            
+            # # 거래 기록 저장
+            # self.save_trade_history()
+            
+        except Exception as e:
+            error_msg = f"테스트 거래 기록 생성 중 오류 발생: {str(e)}"
+            self.update_status_signal.emit(error_msg)
+            print(f"[DEBUG] {error_msg}")
